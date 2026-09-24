@@ -1,0 +1,169 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --background: 0 0% 100%;
+    --foreground: 222 20% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 20% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 20% 12%;
+
+    --primary: 234 89% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 20% 96%;
+    --secondary-foreground: 222 20% 12%;
+
+    --muted: 220 20% 96%;
+    --muted-foreground: 220 9% 46%;
+
+    --accent: 220 20% 94%;
+    --accent-foreground: 222 20% 12%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 60% 36%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 32 95% 44%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 220 16% 89%;
+    --input: 220 16% 89%;
+    --ring: 234 89% 60%;
+
+    --radius: 0.75rem;
+
+    --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  /* Dark palette: applied when the user picked Dark (.dark on <html>), or when the theme is
+     System (no class) and the OS prefers dark. Chosen by a cookie the server reads, so the
+     server-rendered <html> already matches the client and nothing mutates it before hydration. */
+  .dark {
+    color-scheme: dark;
+    --background: 222 24% 7%;
+    --foreground: 210 20% 94%;
+
+    --card: 222 22% 10%;
+    --card-foreground: 210 20% 94%;
+
+    --popover: 222 22% 9%;
+    --popover-foreground: 210 20% 94%;
+
+    --primary: 231 91% 68%;
+    --primary-foreground: 222 24% 8%;
+
+    --secondary: 222 18% 15%;
+    --secondary-foreground: 210 20% 94%;
+
+    --muted: 222 18% 15%;
+    --muted-foreground: 218 12% 65%;
+
+    --accent: 222 18% 17%;
+    --accent-foreground: 210 20% 94%;
+
+    --destructive: 0 63% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 55% 45%;
+    --success-foreground: 222 24% 8%;
+
+    --warning: 38 92% 55%;
+    --warning-foreground: 222 24% 8%;
+
+    --border: 222 16% 18%;
+    --input: 222 16% 18%;
+    --ring: 231 91% 68%;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not(.light) {
+      color-scheme: dark;
+      --background: 222 24% 7%;
+      --foreground: 210 20% 94%;
+
+      --card: 222 22% 10%;
+      --card-foreground: 210 20% 94%;
+
+      --popover: 222 22% 9%;
+      --popover-foreground: 210 20% 94%;
+
+      --primary: 231 91% 68%;
+      --primary-foreground: 222 24% 8%;
+
+      --secondary: 222 18% 15%;
+      --secondary-foreground: 210 20% 94%;
+
+      --muted: 222 18% 15%;
+      --muted-foreground: 218 12% 65%;
+
+      --accent: 222 18% 17%;
+      --accent-foreground: 210 20% 94%;
+
+      --destructive: 0 63% 51%;
+      --destructive-foreground: 0 0% 100%;
+
+      --success: 152 55% 45%;
+      --success-foreground: 222 24% 8%;
+
+      --warning: 38 92% 55%;
+      --warning-foreground: 222 24% 8%;
+
+      --border: 222 16% 18%;
+      --input: 222 16% 18%;
+      --ring: 231 91% 68%;
+    }
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    /* Keep content clear of the notch in landscape (viewport-fit=cover). */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    font-feature-settings: "cv11", "ss01";
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    @apply bg-primary/20;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
