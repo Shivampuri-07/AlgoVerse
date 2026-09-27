@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/providers/theme-provider";
+import { AuthProvider } from "@/components/providers/auth-provider";
 import { StoreHydration } from "@/components/providers/store-hydration";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { KeyboardShortcutsListener } from "@/components/layout/keyboard-shortcuts-listener";
@@ -19,14 +20,16 @@ export function AppProviders({
 }) {
   return (
     <ThemeProvider initialTheme={initialTheme}>
-      <TooltipProvider delayDuration={200}>
-        <StoreHydration />
-        <KeyboardShortcutsListener />
-        <PwaManager />
-        {children}
-        <InstallPrompt />
-        <Toaster position="bottom-right" richColors closeButton />
-      </TooltipProvider>
+      <AuthProvider>
+        <TooltipProvider delayDuration={200}>
+          <StoreHydration />
+          <KeyboardShortcutsListener />
+          <PwaManager />
+          {children}
+          <InstallPrompt />
+          <Toaster position="bottom-right" richColors closeButton />
+        </TooltipProvider>
+      </AuthProvider>
     </ThemeProvider>
   );
 }

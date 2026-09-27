@@ -1,7 +1,36 @@
 # AlgoVerse SaaS Architecture (Phase 0 audit and proposal)
 
-Status: **proposal, awaiting approval.** No infrastructure, accounts or payment services
-have been created. Nothing in this document is legal, tax or financial advice.
+Status: **Phase 0 approved with changes (2026-09-27). Phase 1 (accounts) implemented.**
+Nothing in this document is legal, tax or financial advice.
+
+## Decision record (2026-09-27, by the project owner)
+
+| Question | Decision | Consequence |
+|---|---|---|
+| Database / auth | **Firebase** (Auth + Firestore), project `algoverse-f5b48` | Supersedes the Supabase recommendation below. The Postgres schema in section 4 becomes the Firestore layout further down. |
+| Cloud sync | **Pro only** | Free users keep local-only progress (as today). Sync writes go through the server, which checks entitlement. |
+| Payments | **Razorpay, monthly only, ₹30/month** | No annual plan. Plan price lives in config and env, not in code. |
+| AI helper | **Requires login** | Per-user quotas (Phase 5). |
+| Gemini tier | **Free tier** (no paid key) | The privacy policy must disclose that Google may use free-tier prompts to improve its products. Free-tier rate limits cap total AI capacity. |
+| Paid infrastructure | **Declined for now** | Stays on Vercel Hobby and the Firebase Spark plan. **Vercel Hobby forbids commercial use, so this must be resolved before live payments** (section 10). |
+| Age | **Any age** | DPDP treats under-18s as children needing verifiable parental consent (obligations from 14 May 2027). Lawyer review needed before launch. |
+
+### Firestore layout (replaces section 4 for implementation)
+
+```
+users/{uid}                          displayName, createdAt, updatedAt          client: owner get only
+users/{uid}/progress/{problemId}     (Phase 2, Pro)                              client: owner read only
+users/{uid}/bookmarks/{problemId}    (Phase 2, Pro)                              client: owner read only
+users/{uid}/notes/{problemId_kind}   (Phase 2, Pro)                              client: owner read only
+subscriptions/{id}, payments/{id}, aiUsage/{uid_period}, webhookEvents/{id}   server only
+```
+All writes go through Next.js route handlers (Admin SDK) after `requireUser()`. Clients have
+no write access anywhere (`firestore.rules`, tested in `scripts/tests/firestore-rules.test.mjs`).
+Setup steps: `docs/ACCOUNTS_SETUP.md`.
+
+---
+
+*The original Phase 0 proposal follows, unchanged, for reference.*
 
 Audit date: 2026-09-27. Branch audited: `feat/striver-youtube-integration` @ `f2d2ffe`.
 Prices and limits below were read from the providers' official pages on the audit date and

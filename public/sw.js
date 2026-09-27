@@ -5,8 +5,10 @@
  *   - Icons, favicon, manifest                               → stale-while-revalidate
  *   - Page navigations (HTML)                                → network-first; a copy of pages you
  *     visited is kept so they open offline; otherwise the /offline page is shown
- *   - /api/* (including the Gemini route /api/ai), non-GET requests, other origins and
- *     React Server Component fetches                         → NOT intercepted at all
+ *   - Private pages (/account…: rendered per signed-in user)  → network-only, NEVER cached; the
+ *     /offline page is shown when there is no network
+ *   - /api/* (including the Gemini route /api/ai and the auth routes), non-GET requests, other
+ *     origins and React Server Component fetches             → NOT intercepted at all
  *
  * No secrets live here: the Gemini API key only exists on the server, and AI requests/answers
  * are never cached. Progress, bookmarks and notes stay in the page's localStorage.
@@ -19,6 +21,12 @@ const PAGE_CACHE = `${VERSION}-pages`;
 const OFFLINE_URL = "/offline";
 const MAX_PAGES = 60;
 const MAX_STATIC = 250;
+/** Pages that contain the signed-in user's personal data: never written to any cache. */
+const PRIVATE_PAGE_PREFIXES = ["/account"];
+
+function isPrivatePage(pathname) {
+  return PRIVATE_PAGE_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
 
 const PRECACHE_URLS = [
   "/manifest.webmanifest",
@@ -106,6 +114,22 @@ async function networkFirstPage(event) {
   }
 }
 
+async function networkOnlyPage(event) {
+  try {
+    const preloaded = await event.preloadResponse;
+    return preloaded || (await fetch(event.request));
+  } catch {
+    const offline = await caches.match(OFFLINE_URL);
+    return (
+      offline ||
+      new Response("<h1>AlgoVerse</h1><p>You're offline.</p>", {
+        status: 503,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      })
+    );
+  }
+}
+
 async function cacheFirst(event) {
   const cached = await caches.match(event.request);
   if (cached) return cached;
@@ -151,7 +175,7 @@ self.addEventListener("fetch", (event) => {
   if (request.headers.get("RSC") || url.searchParams.has("_rsc")) return;
 
   if (request.mode === "navigate") {
-    event.respondWith(networkFirstPage(event));
+    event.respondWith(isPrivatePage(url.pathname) ? networkOnlyPage(event) : networkFirstPage(event));
     return;
   }
   if (url.pathname.startsWith("/_next/static/")) {
