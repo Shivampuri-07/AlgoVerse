@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { DifficultyBadge } from "@/components/problems/difficulty-badge";
 import { ProblemActions, PlatformAvailability } from "@/components/problems/platform-links";
 import { AiHelper } from "@/components/ai/ai-helper";
+import { StriverVideo } from "@/components/problems/striver-video";
 import { cn } from "@/lib/utils";
 import type { AiProblemContext } from "@/lib/ai/shared";
 import { BookmarkButton } from "@/components/problems/bookmark-button";
@@ -239,6 +240,8 @@ function ProblemDetail({ problem }: { problem: Problem }) {
           </details>
         </CardContent>
       </Card>
+
+      <StriverVideo problem={problem} />
 
       <AiHelper problem={aiContext} code={code} />
 

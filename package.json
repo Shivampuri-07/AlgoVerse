@@ -11,7 +11,8 @@
     "validate:data": "node --experimental-strip-types --no-warnings scripts/validate-a2z-data.ts",
     "test:ai": "node --experimental-strip-types --no-warnings --import ./scripts/tests/register.mjs --test scripts/tests/ai-route.test.ts",
     "test:sw": "node --test scripts/tests/sw.test.mjs",
-    "test": "npm run test:ai && npm run test:sw"
+    "test:videos": "node --experimental-strip-types --no-warnings --import ./scripts/tests/register.mjs --test scripts/tests/videos.test.ts",
+    "test": "npm run test:ai && npm run test:sw && npm run test:videos"
   },
   "dependencies": {
     "@google/genai": "^2.24.0",

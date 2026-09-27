@@ -1,0 +1,1531 @@
+{
+ "_comment": "Video link that the classic Striver A2Z sheet (455 items, the source of data/a2zProblems.ts) lists for each item, keyed by AlgoVerse problem id, with the sheet's own title for the row. Candidates only: build.py verifies every id with YouTube oEmbed and the takeuforward.org sheet before using it.",
+ "1": {
+  "sheetTitle": "User Input / Output",
+  "url": "https://youtu.be/EAR7De6Goz4?t=250"
+ },
+ "3": {
+  "sheetTitle": "Data Types",
+  "url": "https://youtu.be/EAR7De6Goz4?t=755"
+ },
+ "4": {
+  "sheetTitle": "If Else statements",
+  "url": "https://youtu.be/EAR7De6Goz4?t=1259"
+ },
+ "5": {
+  "sheetTitle": "Switch Statement",
+  "url": "https://youtu.be/EAR7De6Goz4"
+ },
+ "6": {
+  "sheetTitle": "For loops",
+  "url": "https://youtu.be/EAR7De6Goz4?t=3096"
+ },
+ "7": {
+  "sheetTitle": "While loops",
+  "url": "https://youtu.be/EAR7De6Goz4?t=3459"
+ },
+ "8": {
+  "sheetTitle": "Functions (Pass by Reference and Value)",
+  "url": "https://youtu.be/EAR7De6Goz4?t=3677"
+ },
+ "13": {
+  "sheetTitle": "Count Digits",
+  "url": "https://youtu.be/1xNbjMdbjug"
+ },
+ "14": {
+  "sheetTitle": "Reverse a Number",
+  "url": "https://youtu.be/1xNbjMdbjug?t=930"
+ },
+ "15": {
+  "sheetTitle": "Check Palindrome",
+  "url": "https://youtu.be/1xNbjMdbjug?t=1230"
+ },
+ "16": {
+  "sheetTitle": "GCD Or HCF",
+  "url": "https://youtu.be/1xNbjMdbjug?t=2684"
+ },
+ "17": {
+  "sheetTitle": "Armstrong Numbers",
+  "url": "https://youtu.be/1xNbjMdbjug?t=1418"
+ },
+ "18": {
+  "sheetTitle": "Print all Divisors",
+  "url": "https://youtu.be/1xNbjMdbjug?t=1580"
+ },
+ "19": {
+  "sheetTitle": "Check for Prime",
+  "url": "https://youtu.be/1xNbjMdbjug?t=2381"
+ },
+ "20": {
+  "sheetTitle": "Understand recursion by print something N times",
+  "url": "https://www.youtube.com/watch?v=yVdKa8dnKiE&list=PLgUwDviBIf0rGlzIn_7rsaR2FQ5e6ZOL9"
+ },
+ "21": {
+  "sheetTitle": "Print name N times using recursion",
+  "url": "https://www.youtube.com/watch?v=un6PLygfXrA&list=PLgUwDviBIf0rGlzIn_7rsaR2FQ5e6ZOL9&index=2"
+ },
+ "22": {
+  "sheetTitle": "Print 1 to N using recursion",
+  "url": "https://www.youtube.com/watch?v=un6PLygfXrA&list=PLgUwDviBIf0rGlzIn_7rsaR2FQ5e6ZOL9&index=2"
+ },
+ "23": {
+  "sheetTitle": "Print N to 1 using recursion",
+  "url": "https://www.youtube.com/watch?v=un6PLygfXrA&list=PLgUwDviBIf0rGlzIn_7rsaR2FQ5e6ZOL9&index=2"
+ },
+ "24": {
+  "sheetTitle": "Sum of first N numbers",
+  "url": "https://www.youtube.com/watch?v=69ZCDFy-OUo&list=PLgUwDviBIf0rGlzIn_7rsaR2FQ5e6ZOL9&index=3"
+ },
+ "25": {
+  "sheetTitle": "Factorial of N numbers",
+  "url": "https://www.youtube.com/watch?v=69ZCDFy-OUo&list=PLgUwDviBIf0rGlzIn_7rsaR2FQ5e6ZOL9&index=3"
+ },
+ "26": {
+  "sheetTitle": "Reverse an array",
+  "url": "https://www.youtube.com/watch?v=twuC1F6gLI8&list=PLgUwDviBIf0rGlzIn_7rsaR2FQ5e6ZOL9&index=4"
+ },
+ "27": {
+  "sheetTitle": "Check if a string is palindrome or not",
+  "url": "https://www.youtube.com/watch?v=twuC1F6gLI8&list=PLgUwDviBIf0rGlzIn_7rsaR2FQ5e6ZOL9&index=4"
+ },
+ "28": {
+  "sheetTitle": "Fibonacci Number",
+  "url": "https://www.youtube.com/watch?v=kvRjNm4rVBE&list=PLgUwDviBIf0rGlzIn_7rsaR2FQ5e6ZOL9&index=5"
+ },
+ "32": {
+  "sheetTitle": "Selection Sort",
+  "url": "https://youtu.be/HGk_ypEuS24?t=167"
+ },
+ "33": {
+  "sheetTitle": "Bubble Sort",
+  "url": "https://youtu.be/HGk_ypEuS24?t=1061"
+ },
+ "34": {
+  "sheetTitle": "Insertion Sort",
+  "url": "https://youtu.be/HGk_ypEuS24?t=1900"
+ },
+ "35": {
+  "sheetTitle": "Merge Sort",
+  "url": "https://youtu.be/ogjf7ORKfd8"
+ },
+ "38": {
+  "sheetTitle": "Quick Sort",
+  "url": "https://youtu.be/WIrA4YexLRQ"
+ },
+ "39": {
+  "sheetTitle": "Largest Element in an Array",
+  "url": "https://youtu.be/37E9ckMDdTk?t=526"
+ },
+ "40": {
+  "sheetTitle": "Second Largest Element in an Array without sorting",
+  "url": "https://youtu.be/37E9ckMDdTk?t=810"
+ },
+ "41": {
+  "sheetTitle": "Check if the array is sorted",
+  "url": "https://youtu.be/37E9ckMDdTk?t=17224"
+ },
+ "42": {
+  "sheetTitle": "Remove duplicates from Sorted array",
+  "url": "https://youtu.be/37E9ckMDdTk?t=1887"
+ },
+ "43": {
+  "sheetTitle": "Left Rotate an array by one place",
+  "url": "https://youtu.be/wvcQg43_V8U?t=61"
+ },
+ "44": {
+  "sheetTitle": "Left rotate an array by D places",
+  "url": "https://youtu.be/wvcQg43_V8U?t=485"
+ },
+ "45": {
+  "sheetTitle": "Move Zeros to end",
+  "url": "https://youtu.be/wvcQg43_V8U?t=1633"
+ },
+ "46": {
+  "sheetTitle": "Linear Search",
+  "url": "https://youtu.be/wvcQg43_V8U?t=2465"
+ },
+ "47": {
+  "sheetTitle": "Find the Union",
+  "url": "https://youtu.be/wvcQg43_V8U?t=2584"
+ },
+ "48": {
+  "sheetTitle": "Find missing number in an array",
+  "url": "https://youtu.be/bYWLJb3vCWY?t=57"
+ },
+ "49": {
+  "sheetTitle": "Maximum Consecutive Ones",
+  "url": "https://youtu.be/bYWLJb3vCWY?t=1124"
+ },
+ "50": {
+  "sheetTitle": "Find the number that appears once, and other numbers twice.",
+  "url": "https://youtu.be/bYWLJb3vCWY?t=1369"
+ },
+ "51": {
+  "sheetTitle": "Longest subarray with given sum K(positives)",
+  "url": "https://www.youtube.com/watch?v=frf7qxiN2qU&feature=youtu.be"
+ },
+ "52": {
+  "sheetTitle": "Longest subarray with sum K (Positives + Negatives)",
+  "url": "https://www.youtube.com/watch?v=frf7qxiN2qU"
+ },
+ "53": {
+  "sheetTitle": "2Sum Problem",
+  "url": "https://youtu.be/UXDSeD9mN-k"
+ },
+ "54": {
+  "sheetTitle": "Sort an array of 0's 1's and 2's",
+  "url": "https://youtu.be/tp8JIuCXBaU"
+ },
+ "55": {
+  "sheetTitle": "Majority Element (>n/2 times)",
+  "url": "https://youtu.be/nP_ns3uSh80"
+ },
+ "56": {
+  "sheetTitle": "Kadane's Algorithm, maximum subarray sum",
+  "url": "https://www.youtube.com/watch?v=w_KEocd__20&list=PLgUwDviBIf0rPG3Ictpu74YWBQ1CaBkm2&index=5"
+ },
+ "57": {
+  "sheetTitle": "Print subarray with maximum subarray sum (extended version of above problem)",
+  "url": "https://youtu.be/AHZpyENo7k4"
+ },
+ "58": {
+  "sheetTitle": "Stock Buy and Sell",
+  "url": "https://youtu.be/excAOvwF_Wk"
+ },
+ "59": {
+  "sheetTitle": "Rearrange the array in alternating positive and negative items",
+  "url": "https://youtu.be/h4aBagy4Uok"
+ },
+ "60": {
+  "sheetTitle": "Next Permutation",
+  "url": "https://youtu.be/JDOXKqF60RQ"
+ },
+ "61": {
+  "sheetTitle": "Leaders in an Array problem",
+  "url": "https://youtu.be/cHrH9CQ8pmY"
+ },
+ "62": {
+  "sheetTitle": "Longest Consecutive Sequence in an Array",
+  "url": "https://youtu.be/oO5uLE7EUlM"
+ },
+ "63": {
+  "sheetTitle": "Set Matrix Zeros",
+  "url": "https://youtu.be/N0MgLvceX7M"
+ },
+ "64": {
+  "sheetTitle": "Rotate Matrix by 90 degrees",
+  "url": "https://youtu.be/Z0R2u6gd3GU"
+ },
+ "65": {
+  "sheetTitle": "Print the matrix in spiral manner",
+  "url": "https://youtu.be/3Zv-s9UUrFM"
+ },
+ "66": {
+  "sheetTitle": "Count subarrays with given sum",
+  "url": "https://www.youtube.com/watch?v=xvNwoz-ufXA&list=PLgUwDviBIf0oF6QL8m22w1hIDC1vJ_BHz&index=32"
+ },
+ "67": {
+  "sheetTitle": "Pascal's Triangle",
+  "url": "https://youtu.be/bR7mQgwQ_o8"
+ },
+ "68": {
+  "sheetTitle": "Majority Element (n/3 times)",
+  "url": "https://youtu.be/vwZj1K0e9U8"
+ },
+ "69": {
+  "sheetTitle": "3-Sum Problem",
+  "url": "https://youtu.be/DhFh8Kw7ymk"
+ },
+ "70": {
+  "sheetTitle": "4-Sum Problem",
+  "url": "https://youtu.be/eD95WRfh81c"
+ },
+ "71": {
+  "sheetTitle": "Largest Subarray with 0 Sum",
+  "url": "https://www.youtube.com/watch?v=xmguZ6GbatA&list=PLgUwDviBIf0p4ozDR_kJJkONnb1wdx2Ma&index=23"
+ },
+ "72": {
+  "sheetTitle": "Count number of subarrays with given xor K",
+  "url": "https://youtu.be/eZr-6p0B7ME"
+ },
+ "73": {
+  "sheetTitle": "Merge Overlapping Subintervals",
+  "url": "https://youtu.be/IexN60k62jo"
+ },
+ "74": {
+  "sheetTitle": "Merge two sorted arrays without extra space",
+  "url": "https://youtu.be/n7uwj04E0I4"
+ },
+ "75": {
+  "sheetTitle": "Find the repeating and missing number",
+  "url": "https://youtu.be/2D0D8HE6uak"
+ },
+ "76": {
+  "sheetTitle": "Count Inversions",
+  "url": "https://youtu.be/AseUmwVNaoY"
+ },
+ "77": {
+  "sheetTitle": "Reverse Pairs",
+  "url": "https://youtu.be/0e4bZaP3MDI"
+ },
+ "78": {
+  "sheetTitle": "Maximum Product Subarray",
+  "url": "https://youtu.be/hnswaLJvr6g"
+ },
+ "79": {
+  "sheetTitle": "Binary Search to find X in sorted array",
+  "url": "https://youtu.be/MHf6awe89xw"
+ },
+ "80": {
+  "sheetTitle": "Implement Lower Bound",
+  "url": "https://youtu.be/6zhGS79oQ4k"
+ },
+ "81": {
+  "sheetTitle": "Implement Upper Bound",
+  "url": "https://youtu.be/6zhGS79oQ4k"
+ },
+ "82": {
+  "sheetTitle": "Search Insert Position",
+  "url": "https://youtu.be/6zhGS79oQ4k"
+ },
+ "83": {
+  "sheetTitle": "Floor/Ceil in Sorted Array",
+  "url": "https://www.youtube.com/watch?v=6zhGS79oQ4k&list=PLgUwDviBIf0pMFMWuuvDNMAkoQFi-h0ZF&index=3"
+ },
+ "84": {
+  "sheetTitle": "Find the first or last occurrence of a given number in a sorted array",
+  "url": "https://youtu.be/hjR1IYVx9lY"
+ },
+ "85": {
+  "sheetTitle": "Count occurrences of a number in a sorted array with duplicates",
+  "url": "https://youtu.be/hjR1IYVx9lY"
+ },
+ "86": {
+  "sheetTitle": "Search in Rotated Sorted Array I",
+  "url": "https://youtu.be/5qGrJbHhqFs"
+ },
+ "87": {
+  "sheetTitle": "Search in Rotated Sorted Array II",
+  "url": "https://youtu.be/w2G2W8l__pc"
+ },
+ "88": {
+  "sheetTitle": "Find minimum in Rotated Sorted Array",
+  "url": "https://youtu.be/nhEMDKMB44g"
+ },
+ "89": {
+  "sheetTitle": "Find out how many times has an array been rotated",
+  "url": "https://youtu.be/jtSiWTPLwd0"
+ },
+ "90": {
+  "sheetTitle": "Single element in a Sorted Array",
+  "url": "https://youtu.be/AZOmHuHadxQ"
+ },
+ "91": {
+  "sheetTitle": "Find peak element",
+  "url": "https://youtu.be/cXxmbemS6XM"
+ },
+ "92": {
+  "sheetTitle": "Find square root of a number in log n",
+  "url": "https://youtu.be/Bsv3FPUX_BA"
+ },
+ "93": {
+  "sheetTitle": "Find the Nth root of a number using binary search",
+  "url": "https://youtu.be/rjEJeYCasHs"
+ },
+ "94": {
+  "sheetTitle": "Koko Eating Bananas",
+  "url": "https://youtu.be/qyfekrNni90"
+ },
+ "95": {
+  "sheetTitle": "Minimum days to make M bouquets",
+  "url": "https://youtu.be/TXAuxeYBTdg"
+ },
+ "96": {
+  "sheetTitle": "Find the smallest Divisor",
+  "url": "https://youtu.be/UvBKTVaG6U8"
+ },
+ "97": {
+  "sheetTitle": "Capacity to Ship Packages within D Days",
+  "url": "https://youtu.be/MG-Ac4TAvTY"
+ },
+ "98": {
+  "sheetTitle": "Kth Missing Positive Number",
+  "url": "https://youtu.be/uZ0N_hZpyps"
+ },
+ "99": {
+  "sheetTitle": "Aggressive Cows",
+  "url": "https://youtu.be/R_Mfw4ew-Vo"
+ },
+ "100": {
+  "sheetTitle": "Book Allocation Problem",
+  "url": "https://youtu.be/Z0hwjftStI4"
+ },
+ "101": {
+  "sheetTitle": "Split array - Largest Sum",
+  "url": "https://www.youtube.com/watch?v=thUd_WJn6wk&list=PLgUwDviBIf0pMFMWuuvDNMAkoQFi-h0ZF&index=20"
+ },
+ "102": {
+  "sheetTitle": "Painter's partition",
+  "url": "https://www.youtube.com/watch?v=thUd_WJn6wk&list=PLgUwDviBIf0pMFMWuuvDNMAkoQFi-h0ZF&index=20"
+ },
+ "103": {
+  "sheetTitle": "Minimize Max Distance to Gas Station",
+  "url": "https://www.youtube.com/watch?v=kMSBvlZ-_HA&list=PLgUwDviBIf0pMFMWuuvDNMAkoQFi-h0ZF&index=21"
+ },
+ "104": {
+  "sheetTitle": "Median of 2 sorted arrays",
+  "url": "https://youtu.be/C2rRzz-JDk8"
+ },
+ "105": {
+  "sheetTitle": "Kth element of 2 sorted arrays",
+  "url": "https://youtu.be/D1oDwWCq50g"
+ },
+ "106": {
+  "sheetTitle": "Find the row with maximum number of 1's",
+  "url": "https://youtu.be/SCz-1TtYxDI"
+ },
+ "107": {
+  "sheetTitle": "Search in a 2 D matrix",
+  "url": "https://youtu.be/JXU4Akft7yk"
+ },
+ "108": {
+  "sheetTitle": "Search in a row and column wise sorted matrix",
+  "url": "https://youtu.be/9ZbB397jU4k"
+ },
+ "109": {
+  "sheetTitle": "Find Peak Element (2D Matrix)",
+  "url": "https://youtu.be/nGGp5XBzC4g?si=WCop5C6Azj5gAELH"
+ },
+ "110": {
+  "sheetTitle": "Matrix Median",
+  "url": "https://youtu.be/Q9wXgdxJq48?si=ScI_0uzJh7yg8nrX"
+ },
+ "126": {
+  "sheetTitle": "Introduction to LinkedList, learn about struct, and how is node represented",
+  "url": "https://youtu.be/Nq7ok-OyEpg?si=9PR1o8OPRWil7fRA"
+ },
+ "127": {
+  "sheetTitle": "Inserting a node in LinkedList",
+  "url": "https://youtu.be/VaECK03Dz-g?si=vHSwdf9jhE05adKM&t=1934"
+ },
+ "128": {
+  "sheetTitle": "Deleting a node in LinkedList",
+  "url": "https://youtu.be/VaECK03Dz-g?si=CRaBHbOo2bHFbOT5"
+ },
+ "129": {
+  "sheetTitle": "Find the length of the linkedlist [learn traversal]",
+  "url": "https://youtu.be/Nq7ok-OyEpg?si=xqQbukLfo2oZ6C6s&t=2240"
+ },
+ "130": {
+  "sheetTitle": "Search an element in the LL",
+  "url": "https://youtu.be/Nq7ok-OyEpg?si=WNXcIaXZ_B6cNq0s&t=2524"
+ },
+ "131": {
+  "sheetTitle": "Introduction to DLL, learn about struct, and how is node represented",
+  "url": "https://youtu.be/0eKMU10uEDI?si=uDnoj_C5ghEpNLvP"
+ },
+ "132": {
+  "sheetTitle": "Insert a node in DLL",
+  "url": "https://youtu.be/0eKMU10uEDI?si=J5a0pQTosimcO_aA&t=2684"
+ },
+ "133": {
+  "sheetTitle": "Delete a node in DLL",
+  "url": "https://youtu.be/0eKMU10uEDI?si=sE7jqrW46lfRHVLd&t=853"
+ },
+ "134": {
+  "sheetTitle": "Reverse a DLL",
+  "url": "https://youtu.be/u3WUW2qe6ww?si=96Wwlju72IvmzkxE"
+ },
+ "135": {
+  "sheetTitle": "Middle of a LinkedList [TortoiseHare Method]",
+  "url": "https://youtu.be/7LjQ57RqgEc?si=ir_rRDio38rhamU_"
+ },
+ "136": {
+  "sheetTitle": "Reverse a LinkedList [Iterative]",
+  "url": "https://youtu.be/D2vI2DNJGd8?si=RCaLSx01qR21IBdh"
+ },
+ "137": {
+  "sheetTitle": "Reverse a LL [Recursive]",
+  "url": "https://youtu.be/D2vI2DNJGd8?si=RCaLSx01qR21IBdh"
+ },
+ "138": {
+  "sheetTitle": "Detect a loop in LL",
+  "url": "https://youtu.be/wiOo4DC5GGA?si=zagt6O6tFXc4_3cx"
+ },
+ "139": {
+  "sheetTitle": "Find the starting point in LL",
+  "url": "https://youtu.be/2Kd0KKmmHFc?si=7UreDPRjRvapeVB0"
+ },
+ "140": {
+  "sheetTitle": "Length of Loop in LL",
+  "url": "https://youtu.be/I4g1qbkTPus?si=ONktpqewvx57T8pF"
+ },
+ "141": {
+  "sheetTitle": "Check if LL is palindrome or not",
+  "url": "https://youtu.be/lRY_G-u_8jk?si=BpM8hRYvXSYyjl-G"
+ },
+ "142": {
+  "sheetTitle": "Segrregate odd and even nodes in LL",
+  "url": "https://youtu.be/qf6qp7GzD5Q?si=JozAyXUdT8EJMSCQ"
+ },
+ "143": {
+  "sheetTitle": "Remove Nth node from the back of the LL",
+  "url": "https://youtu.be/3kMKYQ2wNIU?si=DtFDnPU7z9HMz_GM"
+ },
+ "144": {
+  "sheetTitle": "Delete the middle node of LL",
+  "url": "https://youtu.be/ePpV-_pfOeI?si=Au9GsZkVO57j6SiN"
+ },
+ "145": {
+  "sheetTitle": "Sort LL",
+  "url": "https://youtu.be/8ocB7a_c-Cc?si=Gv-Y8q8-WyARoV35"
+ },
+ "146": {
+  "sheetTitle": "Sort a LL of 0's 1's and 2's by changing links",
+  "url": "https://youtu.be/gRII7LhdJWc?si=l3qRC7w3NhY7OAqw"
+ },
+ "147": {
+  "sheetTitle": "Find the intersection point of Y LL",
+  "url": "https://youtu.be/0DYoPz2Tpt4?si=L-uJs5yXUxj4VJM2"
+ },
+ "148": {
+  "sheetTitle": "Add 1 to a number represented by LL",
+  "url": "https://youtu.be/aXQWhbvT3w0?si=uRgU9S4r5cVmnUy7"
+ },
+ "149": {
+  "sheetTitle": "Add 2 numbers in LL",
+  "url": "https://youtu.be/XmRrGzR6udg?si=VYuZYUcaVCrZCgpA"
+ },
+ "150": {
+  "sheetTitle": "Delete all occurrences of a key in DLL",
+  "url": "https://youtu.be/Mh0NH_SD92k?si=tCYshBRi1upMqSVz"
+ },
+ "151": {
+  "sheetTitle": "Find pairs with given sum in DLL",
+  "url": "https://youtu.be/YitR4dQsddE?si=iZAC259hdngV_OxC"
+ },
+ "152": {
+  "sheetTitle": "Remove duplicates from sorted DLL",
+  "url": "https://youtu.be/YJKVTnOJXSY?si=AsZoNUoewetsBjr0"
+ },
+ "153": {
+  "sheetTitle": "Reverse LL in group of given size K",
+  "url": "https://youtu.be/lIar1skcQYI?si=_jFghHKX4eaK36a1"
+ },
+ "154": {
+  "sheetTitle": "Rotate a LL",
+  "url": "https://youtu.be/uT7YI7XbTY8?si=ZaChW3a68c_v54Is"
+ },
+ "155": {
+  "sheetTitle": "Flattening of LL",
+  "url": "https://youtu.be/ykelywHJWLg?si=InMg9MmTHzY22NSR"
+ },
+ "156": {
+  "sheetTitle": "Clone a Linked List with random and next pointer",
+  "url": "https://youtu.be/q570bKdrnlw?si=epZtpWvtNwuTf23o"
+ },
+ "158": {
+  "sheetTitle": "Pow(x, n)",
+  "url": "https://youtu.be/l0YC3876qxg"
+ },
+ "164": {
+  "sheetTitle": "Print all subsequences/Power Set",
+  "url": "https://youtu.be/b7AYbpM5YrE"
+ },
+ "165": {
+  "sheetTitle": "Learn All Patterns of Subsequences (Theory)",
+  "url": "https://www.youtube.com/watch?v=eQCS_v3bw0Q&list=PLgUwDviBIf0rGlzIn_7rsaR2FQ5e6ZOL9&index=7"
+ },
+ "168": {
+  "sheetTitle": "Combination Sum",
+  "url": "https://www.youtube.com/watch?v=OyZFFqQtu98&list=PLgUwDviBIf0p4ozDR_kJJkONnb1wdx2Ma&index=49"
+ },
+ "169": {
+  "sheetTitle": "Combination Sum-II",
+  "url": "https://www.youtube.com/watch?v=G1fRTGRxXU8&list=PLgUwDviBIf0p4ozDR_kJJkONnb1wdx2Ma&index=50"
+ },
+ "170": {
+  "sheetTitle": "Subset Sum-I",
+  "url": "https://www.youtube.com/watch?v=rYkfBRtMJr8&list=PLgUwDviBIf0p4ozDR_kJJkONnb1wdx2Ma&index=52"
+ },
+ "171": {
+  "sheetTitle": "Subset Sum-II",
+  "url": "https://www.youtube.com/watch?v=RIn3gOkbhQE&list=PLgUwDviBIf0p4ozDR_kJJkONnb1wdx2Ma&index=53"
+ },
+ "174": {
+  "sheetTitle": "Palindrome Partitioning",
+  "url": "https://www.youtube.com/watch?v=WBgsABoClE0&list=PLgUwDviBIf0p4ozDR_kJJkONnb1wdx2Ma&index=51"
+ },
+ "176": {
+  "sheetTitle": "N Queen",
+  "url": "https://www.youtube.com/watch?v=i05Ju7AftcM&list=PLgUwDviBIf0p4ozDR_kJJkONnb1wdx2Ma&index=57"
+ },
+ "177": {
+  "sheetTitle": "Rat in a Maze",
+  "url": "https://www.youtube.com/watch?v=bLGZhJlt4y0&list=PLgUwDviBIf0p4ozDR_kJJkONnb1wdx2Ma&index=60"
+ },
+ "179": {
+  "sheetTitle": "M Coloring Problem",
+  "url": "https://www.youtube.com/watch?v=wuVwUK25Rfc&list=PLgUwDviBIf0p4ozDR_kJJkONnb1wdx2Ma&index=59"
+ },
+ "180": {
+  "sheetTitle": "Sudoko Solver",
+  "url": "https://www.youtube.com/watch?v=FWAIf_EVUKE&list=PLgUwDviBIf0p4ozDR_kJJkONnb1wdx2Ma&index=58"
+ },
+ "182": {
+  "sheetTitle": "Introduction to Bit Manipulation [Theory]",
+  "url": "https://youtu.be/qQd-ViW7bfk?si=QtdNaRhHmZb08Mr8"
+ },
+ "183": {
+  "sheetTitle": "Check if the i-th bit is set or not",
+  "url": "https://youtu.be/nttpF8kwgd4?si=x9o8PsYaA2XVZ9rV"
+ },
+ "184": {
+  "sheetTitle": "Check if a number is odd or not",
+  "url": "https://youtu.be/nttpF8kwgd4?si=x9o8PsYaA2XVZ9rV"
+ },
+ "185": {
+  "sheetTitle": "Check if a number is power of 2 or not",
+  "url": "https://youtu.be/nttpF8kwgd4?si=x9o8PsYaA2XVZ9rV"
+ },
+ "186": {
+  "sheetTitle": "Count the number of set bits",
+  "url": "https://youtu.be/nttpF8kwgd4?si=x9o8PsYaA2XVZ9rV"
+ },
+ "187": {
+  "sheetTitle": "Set/Unset the rightmost unset bit",
+  "url": "https://youtu.be/nttpF8kwgd4?si=x9o8PsYaA2XVZ9rV"
+ },
+ "188": {
+  "sheetTitle": "Swap two numbers",
+  "url": "https://youtu.be/nttpF8kwgd4?si=x9o8PsYaA2XVZ9rV"
+ },
+ "189": {
+  "sheetTitle": "Divide two integers without using multiplication, division and mod operator",
+  "url": "https://youtu.be/pBD4B1tzgVc?si=G9c5pEE-RrzeU6sz"
+ },
+ "190": {
+  "sheetTitle": "Count number of bits to be flipped to convert A to B",
+  "url": "https://youtu.be/OOdrmcfZXd8?si=rnkRVz1UiVBKWC69"
+ },
+ "191": {
+  "sheetTitle": "Find the number that appears odd number of times",
+  "url": "https://youtu.be/sFBCAl8yBfE?si=fETk-BA0cvmF02rR"
+ },
+ "192": {
+  "sheetTitle": "Power Set",
+  "url": "https://youtu.be/LqKaUv1G3_I?si=UXU_T5OsHiokPRvP"
+ },
+ "193": {
+  "sheetTitle": "Find xor of numbers from L to R",
+  "url": "https://youtu.be/WqGb7159h7Q?si=uGUEbNUUaIN_6Vvr"
+ },
+ "194": {
+  "sheetTitle": "Find the two numbers appearing odd number of times",
+  "url": "https://youtu.be/UA5JnV1J2sI?si=VFBRJyb3boZvx_r1"
+ },
+ "195": {
+  "sheetTitle": "Print Prime Factors of a Number",
+  "url": "https://youtu.be/LT7XhVdeRyg?si=6HkjQokJRPTFai21"
+ },
+ "196": {
+  "sheetTitle": "All Divisors of a Number",
+  "url": "https://youtu.be/Ae_Ag_saG9s?si=QQoDTW5DxyZ3Lfjg"
+ },
+ "197": {
+  "sheetTitle": "Sieve of Eratosthenes",
+  "url": "https://youtu.be/g5Fuxn_AvSk?si=fv6Q-Po7wrMW0a5n"
+ },
+ "198": {
+  "sheetTitle": "Find Prime Factorisation of a Number using Sieve",
+  "url": "https://youtu.be/glKWkmKFlMw?si=3k5K5oq3FvKVrWLB"
+ },
+ "199": {
+  "sheetTitle": "Power(n, x)",
+  "url": "https://youtu.be/hFWckDXE-K8?si=lBoOx3qYcmGo_j5b"
+ },
+ "200": {
+  "sheetTitle": "Implement Stack using Arrays",
+  "url": "https://youtu.be/tqQ5fTamIN4?si=ofLt8Zt1ZvhikZ6w"
+ },
+ "201": {
+  "sheetTitle": "Implement Queue using Arrays",
+  "url": "https://youtu.be/tqQ5fTamIN4?si=ofLt8Zt1ZvhikZ6w"
+ },
+ "202": {
+  "sheetTitle": "Implement Stack using Queue",
+  "url": "https://youtu.be/tqQ5fTamIN4?si=ofLt8Zt1ZvhikZ6w"
+ },
+ "203": {
+  "sheetTitle": "Implement Queue using Stack",
+  "url": "https://youtu.be/tqQ5fTamIN4?si=ofLt8Zt1ZvhikZ6w"
+ },
+ "204": {
+  "sheetTitle": "Implement stack using Linkedlist",
+  "url": "https://youtu.be/tqQ5fTamIN4?si=ofLt8Zt1ZvhikZ6w"
+ },
+ "205": {
+  "sheetTitle": "Implement queue using Linkedlist",
+  "url": "https://youtu.be/tqQ5fTamIN4?si=ofLt8Zt1ZvhikZ6w"
+ },
+ "206": {
+  "sheetTitle": "Check for balanced paranthesis",
+  "url": "https://youtu.be/xwjS0iZhw4I?si=UoyKpFn4Q3nf5h2R"
+ },
+ "207": {
+  "sheetTitle": "Implement Min Stack",
+  "url": "https://youtu.be/NdDIaH91P0g?si=4_Jbsq5trFvfSdUY"
+ },
+ "208": {
+  "sheetTitle": "Infix to Postfix Conversion using Stack",
+  "url": "https://youtu.be/4pIc9UBHJtk?si=ryeVvQWpCgwbTQrh"
+ },
+ "209": {
+  "sheetTitle": "Prefix to Infix Conversion",
+  "url": "https://youtu.be/4pIc9UBHJtk?si=ryeVvQWpCgwbTQrh"
+ },
+ "210": {
+  "sheetTitle": "Prefix to Postfix Conversion",
+  "url": "https://youtu.be/4pIc9UBHJtk?si=0pWtyDC1GhbiYP3P"
+ },
+ "211": {
+  "sheetTitle": "Postfix to Prefix Conversion",
+  "url": "https://youtu.be/4pIc9UBHJtk?si=0pWtyDC1GhbiYP3P"
+ },
+ "212": {
+  "sheetTitle": "Postfix to Infix",
+  "url": "https://youtu.be/4pIc9UBHJtk?si=0pWtyDC1GhbiYP3P"
+ },
+ "213": {
+  "sheetTitle": "Convert Infix To Prefix Notation",
+  "url": "https://youtu.be/4pIc9UBHJtk?si=0pWtyDC1GhbiYP3P"
+ },
+ "214": {
+  "sheetTitle": "Next Greater Element",
+  "url": "https://youtu.be/e7XQLtOQM3I?si=QdcHpTtx6gAHsext"
+ },
+ "215": {
+  "sheetTitle": "Next Greater Element 2",
+  "url": "https://youtu.be/7PrncD7v9YQ?si=UkBc7eVy9HGlBpeW"
+ },
+ "218": {
+  "sheetTitle": "Trapping Rainwater",
+  "url": "https://youtu.be/1_5VuquLbXg?si=NFG6df318_6OtGvg"
+ },
+ "219": {
+  "sheetTitle": "Sum of subarray minimum",
+  "url": "https://youtu.be/v0e8p9JCgRc?si=XAU7ekECgS5nboRw"
+ },
+ "220": {
+  "sheetTitle": "Asteroid Collision",
+  "url": "https://youtu.be/_eYGqw_VDR4?si=YyxibcHq800RqgIQ"
+ },
+ "221": {
+  "sheetTitle": "Sum of subarray ranges",
+  "url": "https://youtu.be/gIrMptNPf5M?si=Q_GHuBvzZVs27X_U"
+ },
+ "222": {
+  "sheetTitle": "Remove k Digits",
+  "url": "https://youtu.be/jmbuRzYPGrg?si=WN387gwQ7aXWkUao"
+ },
+ "223": {
+  "sheetTitle": "Largest rectangle in a histogram",
+  "url": "https://youtu.be/Bzat9vgD0fs?si=DiBlLejXcr6EJoyB"
+ },
+ "224": {
+  "sheetTitle": "Maximal Rectangles",
+  "url": "https://youtu.be/ttVu6G7Ayik?si=RhyeKepNwjRUYp7A"
+ },
+ "225": {
+  "sheetTitle": "Sliding Window maximum",
+  "url": "https://youtu.be/NwBvene4Imo?si=eU1PY-bcQfk5wdog"
+ },
+ "226": {
+  "sheetTitle": "Stock span problem",
+  "url": "https://youtu.be/eay-zoSRkVc?si=deNNe5i38BOAntha"
+ },
+ "227": {
+  "sheetTitle": "The Celebrity Problem",
+  "url": "https://youtu.be/cEadsbTeze4?si=olXYfOs7l-SEn2zl"
+ },
+ "228": {
+  "sheetTitle": "LRU cache (IMPORTANT)",
+  "url": "https://youtu.be/z9bJUPxzFOw?si=IUo_d35rXBD0CBAF"
+ },
+ "229": {
+  "sheetTitle": "LFU cache",
+  "url": "https://www.youtube.com/watch?v=0PSB9y8ehbk&list=PLgUwDviBIf0p4ozDR_kJJkONnb1wdx2Ma&index=79"
+ },
+ "230": {
+  "sheetTitle": "Longest Substring Without Repeating Characters",
+  "url": "https://youtu.be/-zSxTJkcdAo?si=I2zfR-vlDMg0zU9z"
+ },
+ "231": {
+  "sheetTitle": "Max Consecutive Ones III",
+  "url": "https://youtu.be/3E4JBHSLpYk?si=SoOW64pP6otEKxBw"
+ },
+ "232": {
+  "sheetTitle": "Fruit Into Baskets",
+  "url": "https://youtu.be/e3bs0uA1NhQ?si=gR8pO62u-nJeFAXk"
+ },
+ "233": {
+  "sheetTitle": "longest repeating character replacement",
+  "url": "https://youtu.be/_eNhaDCr6P0?si=pBWcEjozF5poom0p"
+ },
+ "234": {
+  "sheetTitle": "Binary subarray with sum",
+  "url": "https://youtu.be/XnMdNUkX6VM?si=Nyt8EveeLUg8lmty"
+ },
+ "235": {
+  "sheetTitle": "Count number of nice subarrays",
+  "url": "https://youtu.be/j_QOv9OT9Og?si=Oq5-5hyFkzVSOZpP"
+ },
+ "236": {
+  "sheetTitle": "Number of substring containing all three characters",
+  "url": "https://youtu.be/xtqN4qlgr8s?si=kuaLHVOLXhh5Z2tW"
+ },
+ "237": {
+  "sheetTitle": "Maximum point you can obtain from cards",
+  "url": "https://youtu.be/pBWCOCS636U?si=-X64rY67noxvOwrG"
+ },
+ "238": {
+  "sheetTitle": "Longest Substring with At Most K Distinct Characters",
+  "url": "https://youtu.be/teM9ZsVRQyc?si=Kh0_u6aCkkBU3Q33"
+ },
+ "239": {
+  "sheetTitle": "Subarray with k different integers",
+  "url": "https://youtu.be/7wYGbV_LsX4?si=KWa48RgLDCvdNqRb"
+ },
+ "240": {
+  "sheetTitle": "Minimum Window Substring",
+  "url": "https://youtu.be/WJaij9ffOIY?si=-xnsWIH84zWU0ICd"
+ },
+ "259": {
+  "sheetTitle": "Assign Cookies",
+  "url": "https://youtu.be/DIX2p7vb9co?si=GofAIDimue-Av0Fi"
+ },
+ "260": {
+  "sheetTitle": "Fractional Knapsack Problem",
+  "url": "https://youtu.be/1ibsQrnuEEg?si=8R2By3wpHo0zZVHE"
+ },
+ "261": {
+  "sheetTitle": "Greedy algorithm to find minimum number of coins",
+  "url": "https://www.youtube.com/watch?v=mVg9CfJvayM&list=PLgUwDviBIf0p4ozDR_kJJkONnb1wdx2Ma&index=48"
+ },
+ "262": {
+  "sheetTitle": "Lemonade Change",
+  "url": "https://youtu.be/n_tmibEhO6Q?si=q1NW8MfPy0QU6fIl"
+ },
+ "263": {
+  "sheetTitle": "Valid Paranthesis Checker",
+  "url": "https://youtu.be/cHT6sG_hUZI?si=XRHeyh7jOaLaTy3g"
+ },
+ "264": {
+  "sheetTitle": "N meetings in one room",
+  "url": "https://youtu.be/mKfhTotEguk?si=2RELeq18mpmIIN3Q"
+ },
+ "265": {
+  "sheetTitle": "Jump Game",
+  "url": "https://youtu.be/tZAa_jJ3SwQ?si=voKd7n9VTLDRRNzJ"
+ },
+ "266": {
+  "sheetTitle": "Jump Game 2",
+  "url": "https://youtu.be/7SBVnw7GSTk?si=9uUouBELh9K3m2jZ"
+ },
+ "267": {
+  "sheetTitle": "Minimum number of platforms required for a railway",
+  "url": "https://youtu.be/AsGzwR_FWok?si=165acXU_dtqOHuo9"
+ },
+ "268": {
+  "sheetTitle": "Job sequencing Problem",
+  "url": "https://youtu.be/QbwltemZbRg?si=wvcemJ5BLPlTRmkG"
+ },
+ "269": {
+  "sheetTitle": "Candy",
+  "url": "https://youtu.be/IIqVFvKE6RY?si=EjmuXZJNLQLUkEd7"
+ },
+ "270": {
+  "sheetTitle": "Program for Shortest Job First (or SJF) CPU Scheduling",
+  "url": "https://youtu.be/3-QbX1iDbXs?si=IH8QZUblr01F7UoQ"
+ },
+ "272": {
+  "sheetTitle": "Insert Interval",
+  "url": "https://youtu.be/xxRE-46OCC8?si=a7aPuIw16zDx2lAa"
+ },
+ "273": {
+  "sheetTitle": "Merge Intervals",
+  "url": "https://www.youtube.com/watch?v=2JzRBPFYbKE&list=PLgUwDviBIf0rPG3Ictpu74YWBQ1CaBkm2&index=6"
+ },
+ "274": {
+  "sheetTitle": "Non-overlapping Intervals",
+  "url": "https://youtu.be/HDHQ8lAWakY?si=JVtLqboGdpUTOVjf"
+ },
+ "275": {
+  "sheetTitle": "Introduction to Trees",
+  "url": "https://youtu.be/_ANrF3FJm7I"
+ },
+ "276": {
+  "sheetTitle": "Binary Tree Representation in C++",
+  "url": "https://youtu.be/ctCpP0RFDFc"
+ },
+ "277": {
+  "sheetTitle": "Binary Tree Representation in Java",
+  "url": "https://youtu.be/hyLyW7rP24I"
+ },
+ "278": {
+  "sheetTitle": "Binary Tree Traversals in Binary Tree",
+  "url": "https://youtu.be/jmy0LaGET1I"
+ },
+ "279": {
+  "sheetTitle": "Preorder Traversal of Binary Tree",
+  "url": "https://youtu.be/RlUu72JrOCQ"
+ },
+ "280": {
+  "sheetTitle": "Inorder Traversal of Binary Tree",
+  "url": "https://youtu.be/Z_NEgBgbRVI"
+ },
+ "281": {
+  "sheetTitle": "Post-order Traversal of Binary Tree",
+  "url": "https://youtu.be/COQOU6klsBg"
+ },
+ "282": {
+  "sheetTitle": "Level order Traversal / Level order traversal in spiral form",
+  "url": "https://youtu.be/EoAsWbO7sqg"
+ },
+ "283": {
+  "sheetTitle": "Iterative Preorder Traversal of Binary Tree",
+  "url": "https://youtu.be/Bfqd8BsPVuw"
+ },
+ "284": {
+  "sheetTitle": "Iterative Inorder Traversal of Binary Tree",
+  "url": "https://youtu.be/lxTGsVXjwvM"
+ },
+ "285": {
+  "sheetTitle": "Post-order Traversal of Binary Tree using 2 stack",
+  "url": "https://youtu.be/2YBhNLodD8Q"
+ },
+ "286": {
+  "sheetTitle": "Post-order Traversal of Binary Tree using 1 stack",
+  "url": "https://youtu.be/NzIGLLwZBS8"
+ },
+ "287": {
+  "sheetTitle": "Preorder, Inorder, and Postorder Traversal in one Traversal",
+  "url": "https://youtu.be/ySp2epYvgTE"
+ },
+ "288": {
+  "sheetTitle": "Height of a Binary Tree",
+  "url": "https://youtu.be/eD3tmO66aBA"
+ },
+ "289": {
+  "sheetTitle": "Check if the Binary tree is height-balanced or not",
+  "url": "https://youtu.be/Yt50Jfbd8Po"
+ },
+ "290": {
+  "sheetTitle": "Diameter of Binary Tree",
+  "url": "https://youtu.be/Rezetez59Nk"
+ },
+ "291": {
+  "sheetTitle": "Maximum path sum",
+  "url": "https://youtu.be/WszrfSwMz58"
+ },
+ "292": {
+  "sheetTitle": "Check if two trees are identical or not",
+  "url": "https://youtu.be/BhuvF_-PWS0"
+ },
+ "293": {
+  "sheetTitle": "Zig Zag Traversal of Binary Tree",
+  "url": "https://youtu.be/3OXWEdlIGl4"
+ },
+ "294": {
+  "sheetTitle": "Boundary Traversal of Binary Tree",
+  "url": "https://youtu.be/0ca1nvR0be4"
+ },
+ "295": {
+  "sheetTitle": "Vertical Order Traversal of Binary Tree",
+  "url": "https://youtu.be/q_a6lpbKJdw"
+ },
+ "296": {
+  "sheetTitle": "Top View of Binary Tree",
+  "url": "https://youtu.be/Et9OCDNvJ78"
+ },
+ "297": {
+  "sheetTitle": "Bottom View of Binary Tree",
+  "url": "https://youtu.be/0FtVY6I4pB8"
+ },
+ "298": {
+  "sheetTitle": "Right/Left View of Binary Tree",
+  "url": "https://youtu.be/KV4mRzTjlAk"
+ },
+ "299": {
+  "sheetTitle": "Symmetric Binary Tree",
+  "url": "https://youtu.be/nKggiEpBE"
+ },
+ "300": {
+  "sheetTitle": "Root to Node Path in Binary Tree",
+  "url": "https://youtu.be/fmflMqVOC7k"
+ },
+ "301": {
+  "sheetTitle": "LCA in Binary Tree",
+  "url": "https://youtu.be/_-QHfMDde90"
+ },
+ "302": {
+  "sheetTitle": "Maximum width of a Binary Tree",
+  "url": "https://youtu.be/ZbybYvcVLks"
+ },
+ "303": {
+  "sheetTitle": "Check for Children Sum Property",
+  "url": "https://youtu.be/fnmisPM6cVo"
+ },
+ "304": {
+  "sheetTitle": "Print all the Nodes at a distance of K in a Binary Tree",
+  "url": "https://youtu.be/i9ORlEy6EsI"
+ },
+ "305": {
+  "sheetTitle": "Minimum time taken to BURN the Binary Tree from a Node",
+  "url": "https://youtu.be/2r5wLmQfD6g"
+ },
+ "306": {
+  "sheetTitle": "Count total Nodes in a COMPLETE Binary Tree",
+  "url": "https://youtu.be/u-yWemKGWO0"
+ },
+ "307": {
+  "sheetTitle": "Requirements needed to construct a Unique Binary Tree | Theory",
+  "url": "https://youtu.be/9GMECGQgWrQ"
+ },
+ "308": {
+  "sheetTitle": "Construct Binary Tree from inorder and preorder",
+  "url": "https://youtu.be/aZNaLrVebKQ"
+ },
+ "309": {
+  "sheetTitle": "Construct the Binary Tree from Postorder and Inorder Traversal",
+  "url": "https://youtu.be/LgLRTaEMRVc"
+ },
+ "310": {
+  "sheetTitle": "Serialize and deserialize Binary Tree",
+  "url": "https://youtu.be/-YbXySKJsX8"
+ },
+ "311": {
+  "sheetTitle": "Morris Preorder Traversal of a Binary Tree",
+  "url": "https://youtu.be/80Zug6D1_r4"
+ },
+ "312": {
+  "sheetTitle": "Morris Inorder Traversal of a Binary Tree",
+  "url": "https://youtu.be/80Zug6D1_r4"
+ },
+ "313": {
+  "sheetTitle": "Flatten Binary Tree to LinkedList",
+  "url": "https://youtu.be/sWf7k1x9XR4"
+ },
+ "314": {
+  "sheetTitle": "Introduction to Binary Search Tree",
+  "url": "https://youtu.be/p7-9UvDQZ3w"
+ },
+ "315": {
+  "sheetTitle": "Search in a Binary Search Tree",
+  "url": "https://youtu.be/KcNt6v_56cc"
+ },
+ "317": {
+  "sheetTitle": "Ceil in a Binary Search Tree",
+  "url": "https://youtu.be/KSsk8AhdOZA"
+ },
+ "318": {
+  "sheetTitle": "Floor in a Binary Search Tree",
+  "url": "https://youtu.be/xm_W1ub-K-w"
+ },
+ "319": {
+  "sheetTitle": "Insert a given Node in Binary Search Tree",
+  "url": "https://youtu.be/FiFiNvM29ps"
+ },
+ "320": {
+  "sheetTitle": "Delete a Node in Binary Search Tree",
+  "url": "https://youtu.be/kouxiP_H5WE"
+ },
+ "321": {
+  "sheetTitle": "Find K-th smallest/largest element in BST",
+  "url": "https://youtu.be/9TJYWh0adfk"
+ },
+ "322": {
+  "sheetTitle": "Check if a tree is a BST or BT",
+  "url": "https://youtu.be/f-sj7I5oXEI"
+ },
+ "323": {
+  "sheetTitle": "LCA in Binary Search Tree",
+  "url": "https://youtu.be/cX_kPV_foZc"
+ },
+ "324": {
+  "sheetTitle": "Construct a BST from a preorder traversal",
+  "url": "https://youtu.be/UmJT3j26t1I"
+ },
+ "325": {
+  "sheetTitle": "Inorder Successor/Predecessor in BST",
+  "url": "https://youtu.be/SXKAD2svfmI"
+ },
+ "326": {
+  "sheetTitle": "Merge 2 BST's",
+  "url": "https://youtu.be/D2jMcmxU4bs"
+ },
+ "327": {
+  "sheetTitle": "Two Sum In BST | Check if there exists a pair with Sum K",
+  "url": "https://youtu.be/ssL3sHwPeb4"
+ },
+ "328": {
+  "sheetTitle": "Recover BST | Correct BST with two nodes swapped",
+  "url": "https://youtu.be/ZWGW7FminDM"
+ },
+ "329": {
+  "sheetTitle": "Largest BST in Binary Tree",
+  "url": "https://youtu.be/X0oXMdtUDwo"
+ },
+ "330": {
+  "sheetTitle": "Graph and Types",
+  "url": "https://youtu.be/M3_pLsDdeuU"
+ },
+ "331": {
+  "sheetTitle": "Graph Representation | C++",
+  "url": "https://youtu.be/3oI-34aPMWM"
+ },
+ "332": {
+  "sheetTitle": "Graph Representation | Java",
+  "url": "https://youtu.be/3oI-34aPMWM"
+ },
+ "333": {
+  "sheetTitle": "Connected Components | Logic Explanation",
+  "url": "https://youtu.be/lea-Wl_uWXY"
+ },
+ "334": {
+  "sheetTitle": "BFS",
+  "url": "https://youtu.be/-tgVpUgsQ5k"
+ },
+ "335": {
+  "sheetTitle": "DFS",
+  "url": "https://youtu.be/Qzf1a--rhp8"
+ },
+ "336": {
+  "sheetTitle": "Number of provinces (leetcode)",
+  "url": "https://youtu.be/ACzkVtewUYA"
+ },
+ "338": {
+  "sheetTitle": "Rotten Oranges",
+  "url": "https://www.youtube.com/watch?v=yf3oUhkvqA0"
+ },
+ "339": {
+  "sheetTitle": "Flood fill",
+  "url": "https://youtu.be/C-2_uSRli8o"
+ },
+ "340": {
+  "sheetTitle": "Cycle Detection in unirected Graph (bfs)",
+  "url": "https://youtu.be/BPlrALf1LDU"
+ },
+ "341": {
+  "sheetTitle": "Cycle Detection in undirected Graph (dfs)",
+  "url": "https://youtu.be/zQ3zgFypzX4"
+ },
+ "342": {
+  "sheetTitle": "0/1 Matrix (Bfs Problem)",
+  "url": "https://youtu.be/edXdVwkYHF8"
+ },
+ "343": {
+  "sheetTitle": "Surrounded Regions (dfs)",
+  "url": "https://youtu.be/BtdgAys4yMk"
+ },
+ "344": {
+  "sheetTitle": "Number of Enclaves [flood fill implementation - multisource]",
+  "url": "https://youtu.be/rxKcepXQgU4"
+ },
+ "345": {
+  "sheetTitle": "Word ladder - 1",
+  "url": "https://youtu.be/tRPda0rcf8E"
+ },
+ "346": {
+  "sheetTitle": "Word ladder - 2",
+  "url": "https://youtu.be/tRPda0rcf8E"
+ },
+ "347": {
+  "sheetTitle": "Number of Distinct Islands [dfs multisource]",
+  "url": "https://youtu.be/muncqlKJrH0"
+ },
+ "348": {
+  "sheetTitle": "Bipartite Graph (DFS)",
+  "url": "https://youtu.be/KG5YFfR0j8A"
+ },
+ "349": {
+  "sheetTitle": "Cycle Detection in Directed Graph (DFS)",
+  "url": "https://youtu.be/9twcmtQj4DU"
+ },
+ "350": {
+  "sheetTitle": "Topo Sort",
+  "url": "https://youtu.be/5lZ0iJMrUMk"
+ },
+ "351": {
+  "sheetTitle": "Kahn's Algorithm",
+  "url": "https://youtu.be/73sneFXuTEg"
+ },
+ "352": {
+  "sheetTitle": "Cycle Detection in Directed Graph (BFS)",
+  "url": "https://youtu.be/iTBaI90lpDQ"
+ },
+ "353": {
+  "sheetTitle": "Course Schedule - I",
+  "url": "https://youtu.be/WAOfKpxYHR8"
+ },
+ "354": {
+  "sheetTitle": "Course Schedule - II",
+  "url": "https://youtu.be/WAOfKpxYHR8"
+ },
+ "355": {
+  "sheetTitle": "Find eventual safe states",
+  "url": "https://youtu.be/2gtg3VsDGyc"
+ },
+ "356": {
+  "sheetTitle": "Alien dictionary",
+  "url": "https://youtu.be/U3N_je7tWAs"
+ },
+ "357": {
+  "sheetTitle": "Shortest Path in UG with unit weights",
+  "url": "https://www.youtube.com/watch?v=C4gxoTaI71U&list=PLgUwDviBIf0oE3gA41TKO2H5bHpPd7fzn&index=28"
+ },
+ "358": {
+  "sheetTitle": "Shortest Path in DAG",
+  "url": "https://www.youtube.com/watch?v=ZUFQfFaU-8U&list=PLgUwDviBIf0oE3gA41TKO2H5bHpPd7fzn&index=27"
+ },
+ "359": {
+  "sheetTitle": "Djisktra's Algorithm",
+  "url": "https://www.youtube.com/watch?v=rp1SMw7HSO8&list=PLgUwDviBIf0oE3gA41TKO2H5bHpPd7fzn&index=35"
+ },
+ "360": {
+  "sheetTitle": "Why priority Queue is used in Djisktra's Algorithm",
+  "url": "https://www.youtube.com/watch?v=rp1SMw7HSO8&list=PLgUwDviBIf0oE3gA41TKO2H5bHpPd7fzn&index=35"
+ },
+ "361": {
+  "sheetTitle": "Shortest path in a binary maze",
+  "url": "https://www.youtube.com/watch?v=U5Mw4eyUmw4&list=PLgUwDviBIf0oE3gA41TKO2H5bHpPd7fzn&index=36"
+ },
+ "362": {
+  "sheetTitle": "Path with minimum effort",
+  "url": "https://youtu.be/0ytpZyiZFhA"
+ },
+ "363": {
+  "sheetTitle": "Cheapest flights within k stops",
+  "url": "https://youtu.be/9XybHVqTHcQ"
+ },
+ "365": {
+  "sheetTitle": "Number of ways to arrive at destination",
+  "url": "https://youtu.be/_-0mx0SmYxA"
+ },
+ "366": {
+  "sheetTitle": "Minimum steps to reach end from start by performing multiplication and mod operations with array elements",
+  "url": "https://www.youtube.com/watch?v=_BvEJ3VIDWw&list=PLgUwDviBIf0oE3gA41TKO2H5bHpPd7fzn&index=39"
+ },
+ "367": {
+  "sheetTitle": "Bellman Ford Algorithm",
+  "url": "https://youtu.be/0vVofAhAYjc"
+ },
+ "368": {
+  "sheetTitle": "Floyd Warshal Algorithm",
+  "url": "https://youtu.be/YbY8cVwWAvw"
+ },
+ "369": {
+  "sheetTitle": "Find the city with the smallest number of neighbors in a threshold distance",
+  "url": "https://youtu.be/9XybHVqTHcQ"
+ },
+ "370": {
+  "sheetTitle": "Minimum Spanning Tree",
+  "url": "https://youtu.be/ZSPjZuZWCME"
+ },
+ "371": {
+  "sheetTitle": "Prim's Algorithm",
+  "url": "https://youtu.be/mJcZjjKzeqk"
+ },
+ "372": {
+  "sheetTitle": "Disjoint Set [Union by Rank]",
+  "url": "https://youtu.be/aBxjDBC4M1U"
+ },
+ "373": {
+  "sheetTitle": "Disjoint Set [Union by Size]",
+  "url": "https://youtu.be/aBxjDBC4M1U"
+ },
+ "374": {
+  "sheetTitle": "Kruskal's Algorithm",
+  "url": "https://youtu.be/DMnDM_sxVig"
+ },
+ "375": {
+  "sheetTitle": "Number of operations to make network connected",
+  "url": "https://youtu.be/FYrl7iz9_ZU"
+ },
+ "376": {
+  "sheetTitle": "Most stones removed with same rows or columns",
+  "url": "https://youtu.be/OwMNX8SPavM"
+ },
+ "377": {
+  "sheetTitle": "Accounts merge",
+  "url": "https://youtu.be/FMwpt_aQOGw"
+ },
+ "378": {
+  "sheetTitle": "Number of island II",
+  "url": "https://youtu.be/Rn6B-Q4SNyA"
+ },
+ "379": {
+  "sheetTitle": "Making a Large Island",
+  "url": "https://youtu.be/lgiz0Oup6gM"
+ },
+ "381": {
+  "sheetTitle": "Bridges in Graph",
+  "url": "https://youtu.be/qrAub5z8FeA"
+ },
+ "382": {
+  "sheetTitle": "Articulation Point",
+  "url": "https://youtu.be/j1QDfU21iZk"
+ },
+ "383": {
+  "sheetTitle": "Kosaraju's Algorithm",
+  "url": "https://youtu.be/R6uoSjZ2imo"
+ },
+ "384": {
+  "sheetTitle": "Dynamic Programming Introduction",
+  "url": "https://youtu.be/tyB0ztf0DNY"
+ },
+ "385": {
+  "sheetTitle": "Climbing Stars",
+  "url": "https://youtu.be/mLfjzJsN8us"
+ },
+ "386": {
+  "sheetTitle": "Frog Jump(DP-3)",
+  "url": "https://www.youtube.com/watch?v=EgG3jsGoPvQ"
+ },
+ "387": {
+  "sheetTitle": "Frog Jump with k distances(DP-4)",
+  "url": "https://www.youtube.com/watch?v=Kmh3rhyEtB8"
+ },
+ "388": {
+  "sheetTitle": "Maximum sum of non-adjacent elements (DP 5)",
+  "url": "https://www.youtube.com/watch?v=GrMBfJNk_NY"
+ },
+ "389": {
+  "sheetTitle": "House Robber (DP 6)",
+  "url": "https://www.youtube.com/watch?v=3WaxQMELSkw"
+ },
+ "390": {
+  "sheetTitle": "Ninja's Training (DP 7)",
+  "url": "https://www.youtube.com/watch?v=AE39gJYuRog"
+ },
+ "391": {
+  "sheetTitle": "Grid Unique Paths : DP on Grids (DP8)",
+  "url": "https://www.youtube.com/watch?v=sdE0A2Oxofw"
+ },
+ "392": {
+  "sheetTitle": "Grid Unique Paths 2 (DP 9)",
+  "url": "https://www.youtube.com/watch?v=TmhpgXScLyY"
+ },
+ "393": {
+  "sheetTitle": "Minimum path sum in Grid (DP 10)",
+  "url": "https://www.youtube.com/watch?v=_rgTlyky1uQ"
+ },
+ "394": {
+  "sheetTitle": "Minimum path sum in Triangular Grid (DP 11)",
+  "url": "https://www.youtube.com/watch?v=SrP-PiLSYC0"
+ },
+ "395": {
+  "sheetTitle": "Minimum/Maximum Falling Path Sum (DP-12)",
+  "url": "https://www.youtube.com/watch?v=N_aJ5qQbYA0"
+ },
+ "396": {
+  "sheetTitle": "3-d DP : Ninja and his friends (DP-13)",
+  "url": "https://www.youtube.com/watch?v=QGfn7JeXK54"
+ },
+ "397": {
+  "sheetTitle": "Subset sum equal to target (DP- 14)",
+  "url": "https://www.youtube.com/watch?v=fWX9xDmIzRI"
+ },
+ "398": {
+  "sheetTitle": "Partition Equal Subset Sum (DP- 15)",
+  "url": "https://www.youtube.com/watch?v=7win3dcgo3k"
+ },
+ "399": {
+  "sheetTitle": "Partition Set Into 2 Subsets With Min Absolute Sum Diff (DP- 16)",
+  "url": "https://www.youtube.com/watch?v=GS_OqZb2CWc"
+ },
+ "400": {
+  "sheetTitle": "Count Subsets with Sum K (DP - 17)",
+  "url": "https://www.youtube.com/watch?v=ZHyb-A2Mte4"
+ },
+ "401": {
+  "sheetTitle": "Count Partitions with Given Difference (DP - 18)",
+  "url": "https://www.youtube.com/watch?v=zoilQD1kYSg"
+ },
+ "402": {
+  "sheetTitle": "Assign Cookies",
+  "url": "https://youtu.be/DIX2p7vb9co?si=6G7JzMZ2TSP_LWSG"
+ },
+ "403": {
+  "sheetTitle": "Minimum Coins (DP - 20)",
+  "url": "https://www.youtube.com/watch?v=myPeWb3Y68A"
+ },
+ "404": {
+  "sheetTitle": "Target Sum (DP - 21)",
+  "url": "https://www.youtube.com/watch?v=b3GD8263-PQ"
+ },
+ "405": {
+  "sheetTitle": "Coin Change 2 (DP - 22)",
+  "url": "https://www.youtube.com/watch?v=HgyouUi11zk"
+ },
+ "406": {
+  "sheetTitle": "Unbounded Knapsack (DP - 23)",
+  "url": "https://youtu.be/OgvOZ6OrJoY"
+ },
+ "407": {
+  "sheetTitle": "Rod Cutting Problem | (DP - 24)",
+  "url": "https://youtu.be/mO8XpGoJwuo"
+ },
+ "408": {
+  "sheetTitle": "Longest Common Subsequence | (DP - 25)",
+  "url": "https://youtu.be/NPZn9jBrX8U"
+ },
+ "409": {
+  "sheetTitle": "Print Longest Common Subsequence | (DP - 26)",
+  "url": "https://youtu.be/-zI4mrF2Pb4"
+ },
+ "410": {
+  "sheetTitle": "Longest Common Substring | (DP - 27)",
+  "url": "https://youtu.be/_wP9mWNPL5w"
+ },
+ "411": {
+  "sheetTitle": "Longest Palindromic Subsequence | (DP-28)",
+  "url": "https://youtu.be/6i_T5kkfv4A"
+ },
+ "412": {
+  "sheetTitle": "Minimum insertions to make string palindrome | DP-29",
+  "url": "https://www.youtube.com/watch?v=xPBLEj41rFU"
+ },
+ "413": {
+  "sheetTitle": "Minimum Insertions/Deletions to Convert String | (DP- 30)",
+  "url": "https://www.youtube.com/watch?v=yMnH0jrir0Q"
+ },
+ "414": {
+  "sheetTitle": "Shortest Common Supersequence | (DP - 31)",
+  "url": "https://youtu.be/xElxAuBcvsU"
+ },
+ "415": {
+  "sheetTitle": "Distinct Subsequences| (DP-32)",
+  "url": "https://youtu.be/nVG7eTiD2bY"
+ },
+ "416": {
+  "sheetTitle": "Edit Distance | (DP-33)",
+  "url": "https://youtu.be/fJaKO8FbDdo"
+ },
+ "417": {
+  "sheetTitle": "Wildcard Matching | (DP-34)",
+  "url": "https://youtu.be/ZmlQ3vgAOMo"
+ },
+ "418": {
+  "sheetTitle": "Best Time to Buy and Sell Stock |(DP-35)",
+  "url": "https://youtu.be/excAOvwF_Wk"
+ },
+ "419": {
+  "sheetTitle": "Buy and Sell Stock - II|(DP-36)",
+  "url": "https://youtu.be/nGJmxkUJQGs"
+ },
+ "420": {
+  "sheetTitle": "Buy and Sell Stocks III|(DP-37)",
+  "url": "https://youtu.be/-uQGzhYj8BQ"
+ },
+ "421": {
+  "sheetTitle": "Buy and Stock Sell IV |(DP-38)",
+  "url": "https://youtu.be/IV1dHbk5CDc"
+ },
+ "422": {
+  "sheetTitle": "Buy and Sell Stocks With Cooldown|(DP-39)",
+  "url": "https://youtu.be/IGIe46xw3YY"
+ },
+ "423": {
+  "sheetTitle": "Buy and Sell Stocks With Transaction Fee|(DP-40)",
+  "url": "https://youtu.be/k4eK-vEmnKg"
+ },
+ "424": {
+  "sheetTitle": "Longest Increasing Subsequence |(DP-41)",
+  "url": "https://youtu.be/ekcwMsSIzVc"
+ },
+ "425": {
+  "sheetTitle": "Printing Longest Increasing Subsequence|(DP-42)",
+  "url": "https://youtu.be/IFfYfonAFGc"
+ },
+ "426": {
+  "sheetTitle": "Longest Increasing Subsequence |(DP-43)",
+  "url": "https://youtu.be/on2hvxBXJH4"
+ },
+ "427": {
+  "sheetTitle": "Largest Divisible Subset|(DP-44)",
+  "url": "https://youtu.be/gDuZwBW9VvM"
+ },
+ "428": {
+  "sheetTitle": "Longest String Chain|(DP-45)",
+  "url": "https://youtu.be/YY8iBaYcc4g"
+ },
+ "429": {
+  "sheetTitle": "Longest Bitonic Subsequence |(DP-46)",
+  "url": "https://youtu.be/y4vN0WNdrlg"
+ },
+ "430": {
+  "sheetTitle": "Number of Longest Increasing Subsequences|(DP-47)",
+  "url": "https://youtu.be/cKVl1TFdNXg"
+ },
+ "431": {
+  "sheetTitle": "Matrix Chain Multiplication|(DP-48)",
+  "url": "https://youtu.be/vRVfmbCFW7Y"
+ },
+ "432": {
+  "sheetTitle": "Matrix Chain Multiplication | Bottom-Up|(DP-49)",
+  "url": "https://youtu.be/pDCXsbAw5Cg"
+ },
+ "433": {
+  "sheetTitle": "Minimum Cost to Cut the Stick|(DP-50)",
+  "url": "https://youtu.be/xwomavsC86c"
+ },
+ "434": {
+  "sheetTitle": "Burst Balloons|(DP-51)",
+  "url": "https://youtu.be/Yz4LlDSlkns"
+ },
+ "435": {
+  "sheetTitle": "Evaluate Boolean Expression to True|(DP-52)",
+  "url": "https://youtu.be/MM7fXopgyjw"
+ },
+ "436": {
+  "sheetTitle": "Palindrome Partitioning - II|(DP-53)",
+  "url": "https://youtu.be/_H8V5hJUGd0"
+ },
+ "437": {
+  "sheetTitle": "Partition Array for Maximum Sum|(DP-54)",
+  "url": "https://youtu.be/PhWWJmaKfMc"
+ },
+ "438": {
+  "sheetTitle": "Maximum Rectangle Area with all 1's|(DP-55)",
+  "url": "https://youtu.be/tOylVCugy9k"
+ },
+ "439": {
+  "sheetTitle": "Count Square Submatrices with All Ones|(DP-56)",
+  "url": "https://youtu.be/auS1fynpnjo"
+ },
+ "440": {
+  "sheetTitle": "Implement TRIE | INSERT | SEARCH | STARTSWITH",
+  "url": "https://www.youtube.com/watch?v=dBGUmUQhjaM&list=PLgUwDviBIf0pcIDCZnxhv0LkHf5KzG9zp"
+ },
+ "442": {
+  "sheetTitle": "Longest String with All Prefixes",
+  "url": "https://www.youtube.com/watch?v=AWnBa91lThI&list=PLgUwDviBIf0pcIDCZnxhv0LkHf5KzG9zp&index=3"
+ },
+ "443": {
+  "sheetTitle": "Number of Distinct Substrings in a String",
+  "url": "https://www.youtube.com/watch?v=RV0QeTyHZxo&list=PLgUwDviBIf0pcIDCZnxhv0LkHf5KzG9zp&index=4"
+ },
+ "444": {
+  "sheetTitle": "Bit PreRequisites for TRIE Problems",
+  "url": "https://youtu.be/5iyuU4hQFrw"
+ },
+ "445": {
+  "sheetTitle": "Maximum XOR of two numbers in an array",
+  "url": "https://www.youtube.com/watch?v=EIhAwfHubE8&list=PLgUwDviBIf0pcIDCZnxhv0LkHf5KzG9zp&index=6"
+ },
+ "446": {
+  "sheetTitle": "Maximum XOR With an Element From Array",
+  "url": "https://www.youtube.com/watch?v=Q8LhG9Pi5KM&list=PLgUwDviBIf0pcIDCZnxhv0LkHf5KzG9zp&index=7"
+ }
+}

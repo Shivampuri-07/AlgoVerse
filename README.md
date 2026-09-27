@@ -8,7 +8,9 @@ coding problems, progress tracking, bookmarks, notes, articles, and an AI-powere
 It follows the **complete Striver A2Z DSA Sheet** (classic 18-step roadmap, 455 items) in its
 original order: browse by topic and section, jump straight to the problem on LeetCode /
 GeeksforGeeks / TakeUForward, read an explanation article, track completion and streaks,
-bookmark problems and keep private notes — all stored locally in your browser. It installs
+bookmark problems and keep private notes — all stored locally in your browser. Most
+problems also show **Striver's own YouTube explanation** (376 of 455, each one verified; see
+[docs/STRIVER_VIDEOS.md](docs/STRIVER_VIDEOS.md)). It installs
 as an app (PWA) on Android, iPhone and desktop; see [docs/PWA_SETUP.md](docs/PWA_SETUP.md).
 
 *(AlgoVerse was previously called "DSA Roadmap"; saved progress carries over unchanged.)*
@@ -43,9 +45,10 @@ npm run start          # run the production build
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
 npm run validate:data  # dataset report + integrity checks (scripts/validate-a2z-data.ts, Node >= 22.6)
-npm test               # all tests: AI route (mocked Gemini, no key needed) + service worker
+npm test               # all tests: AI route (mocked Gemini, no key needed), service worker, videos
 npm run test:ai        # AI route tests only (Node >= 22.6)
 npm run test:sw        # service worker tests only
+npm run test:videos    # Striver video mapping tests only (Node >= 22.6)
 ```
 
 On a Mac you can also double-click **`scripts/mac-verify.command`**: it runs
@@ -120,6 +123,7 @@ components/
 data/
   a2zProblems.ts            ⭐ The A2Z dataset (455 items, roadmap order, links + articles)
   a2zLinkReview.ts          Reviewed exceptions the validator checks (shared links, look-alike titles)
+  striverVideos.ts          Verified Striver YouTube video id per problem id (generated, see below)
   problems.ts               What the app reads (re-exports the A2Z data, sorted by order)
   topics.ts                 Topics + sidebar categories
   legacyIdMap.ts            Old starter-dataset id -> A2Z id (progress migration)
@@ -129,6 +133,8 @@ lib/
   store.ts                  Zustand store + localStorage persistence + versioned migration
   migrate-progress.ts       Re-keys old progress to A2Z ids; keeps unmatched items as "legacy"
   dataset-validation.ts     Checks used by `validate:data` and Settings → Dataset health
+  videos.ts                 Video lookup + YouTube watch/embed URLs built at runtime
+  video-validation.ts       Checks for data/striverVideos.ts (used by `validate:data` and tests)
   ai/shared.ts              AI types, quick-action prompts, limits (browser-safe)
   ai/server.ts              System prompt, request validation, Gemini model + error mapping (server only)
   ai/client.ts              Streams answers from POST /api/ai
@@ -138,8 +144,10 @@ lib/
 scripts/
   validate-a2z-data.ts      `npm run validate:data`
   a2z-build/                Python used to generate data/a2zProblems.ts (sources in docs)
+  striver-videos/           verify.mjs + build.py: how data/striverVideos.ts is produced
 docs/A2Z_DATA_AUDIT.md      Current audit: counts, verification levels, issues fixed/remaining
 docs/A2Z_DATASET.md         First audit: sources and LeetCode link audit
+docs/STRIVER_VIDEOS.md      Video verification report: sources, rules, every mapped/missing problem
 ```
 
 ## Adding or editing problems
@@ -196,6 +204,31 @@ Data from the earlier version is migrated automatically on first load:
 **Adding Supabase / Firebase later:** implement the same three-method `StateStorage`
 interface (`getItem`, `setItem`, `removeItem`) against your backend in
 `lib/storage-adapter.ts` and swap it into the `persist(...)` call in `lib/store.ts`.
+
+## Striver's video explanations
+
+Problem pages have a **Striver's Video Explanation** section with the explanation video from
+Striver's channel [take U forward](https://www.youtube.com/@takeUforward) (AlgoVerse isn't
+affiliated with Take U Forward).
+
+- **Only verified videos.** A problem gets a video only if the takeuforward.org A2Z sheet and/or
+  the classic A2Z sheet list that video for this exact item, YouTube confirms it exists, is
+  embeddable and belongs to *take U forward*, and — where the sheets disagree — its YouTube title
+  names the problem. 376 of 455 problems have one; the other 79 show *"Striver's video
+  explanation is not available for this problem yet."* (plus the TakeUForward article when there
+  is one). Nothing is guessed. Full list and reasons: [docs/STRIVER_VIDEOS.md](docs/STRIVER_VIDEOS.md).
+- **Privacy / performance.** Nothing is loaded from YouTube until you click **Load video**; then
+  the official privacy-enhanced embed (`youtube-nocookie.com`) is inserted, **without autoplay**.
+  No YouTube API key, no extra tracking. **Open on YouTube** is always there, and a fallback
+  message appears if the player doesn't load or you're offline.
+- Lecture videos that cover several problems open at the right timestamp.
+- Problems with a video show a small **Video** badge in the problem lists.
+
+The mapping lives in `data/striverVideos.ts`, keyed by problem id and separate from the problem
+data; only video ids are stored and the URLs are built at runtime (`lib/videos.ts`). To fix one
+entry, edit its line there — no UI change is needed; `npm run validate:data` checks it. To
+re-verify everything: `node scripts/striver-videos/verify.mjs` (needs access to YouTube and
+takeuforward.org) then `python3 scripts/striver-videos/build.py`.
 
 ## AI DSA Helper (free, Google Gemini)
 
