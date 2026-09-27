@@ -1,16 +1,21 @@
-import { jsonResponse } from "@/lib/auth/server";
-import { getAdminState } from "@/lib/firebase/admin";
+import { jsonResponse } from "@/lib/http";
+import { checkCredential } from "@/lib/firebase/admin-credential";
+import { loadAdminSdk, nodeSupportsFirebaseAdmin } from "@/lib/firebase/admin-loader";
 import { PUBLIC_CONFIG_VARS, readPublicVars } from "@/lib/firebase/config";
-import { allowSetupDetails, deploymentInfo } from "@/lib/firebase/deployment";
+import { allowSetupDetails, deploymentInfo, vercelEnv } from "@/lib/firebase/deployment";
 import { getPublicConfigState, readRuntimePublicVars } from "@/lib/firebase/runtime-config";
 import { unexpectedFirebaseNames } from "@/scripts/firebase-env-report.mjs";
 
 /**
  * GET /api/auth/diagnostics — yes/no answers about this deployment's Firebase setup.
- * Booleans, state names and variable NAMES only; never a value. Disabled on Production (404).
+ * Booleans, state names and variable NAMES only; never a value, token, cookie or key.
  *
- *   inBuild   — the value was inlined into this build when `next build` ran
- *   atRuntime — the deployment's environment has the value now (what the app falls back to)
+ * Available on every deployment. On Production it returns only the essentials
+ * (browserSignInConfigured, adminCredentialState, missing variable names, SDK/Node support);
+ * Preview and local development also get per-variable build/runtime detail, the branch/commit,
+ * and any misspelled Firebase-like variable names.
+ *
+ * Doesn't import firebase-admin statically, so it keeps answering when the SDK can't load.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,13 +26,43 @@ const SHORT: Record<(typeof PUBLIC_CONFIG_VARS)[number], string> = {
   NEXT_PUBLIC_FIREBASE_PROJECT_ID: "hasProjectId",
   NEXT_PUBLIC_FIREBASE_APP_ID: "hasAppId",
 };
+const ADMIN_VAR = "FIREBASE_SERVICE_ACCOUNT_KEY";
 
-export function GET(): Response {
-  if (!allowSetupDetails()) return jsonResponse({ error: { code: "not_found" } }, 404);
+export async function GET(): Promise<Response> {
+  const resolved = getPublicConfigState();
+  const credential = checkCredential().state;
+  const hasAdminCredential = Boolean(process.env[ADMIN_VAR]?.trim());
+
+  // Only try to load the SDK when there is a credential to use it with.
+  let adminCredentialState: string = credential;
+  let adminSdk: "ok" | "load_failed" | "not_checked" = "not_checked";
+  let adminSdkError: string | undefined;
+  if (credential === "ok") {
+    const sdk = await loadAdminSdk();
+    if (sdk.ok) {
+      adminSdk = "ok";
+      adminCredentialState = sdk.admin.getAdminState(); // may downgrade to "invalid" (damaged key)
+    } else {
+      adminSdk = "load_failed";
+      adminSdkError = sdk.errorCode;
+    }
+  }
+
+  const essentials = {
+    environment: vercelEnv() ?? "local",
+    browserSignInConfigured: resolved.config !== null,
+    missingPublicVariables: resolved.missing,
+    hasAdminCredential,
+    adminCredentialState,
+    missingServerVariables: hasAdminCredential ? [] : [ADMIN_VAR],
+    adminSdk,
+    ...(adminSdkError ? { adminSdkError } : {}),
+    node: { version: process.versions.node, supportedByFirebaseAdmin: nodeSupportsFirebaseAdmin() },
+  };
+  if (!allowSetupDetails()) return jsonResponse(essentials);
 
   const build = readPublicVars();
   const runtimeVars = readRuntimePublicVars();
-  const resolved = getPublicConfigState();
   const publicConfig: Record<string, { inBuild: boolean; atRuntime: boolean; usable: boolean }> = {};
   for (const name of PUBLIC_CONFIG_VARS) {
     publicConfig[SHORT[name]] = {
@@ -36,14 +71,11 @@ export function GET(): Response {
       usable: !resolved.missing.includes(name),
     };
   }
-  const adminKeyName = "FIREBASE_SERVICE_ACCOUNT_KEY";
   return jsonResponse({
+    ...essentials,
     deployment: deploymentInfo(),
     publicConfig,
-    browserSignInConfigured: resolved.config !== null,
     publicConfigSource: resolved.source,
-    hasAdminCredential: Boolean(process.env[adminKeyName]?.trim()),
-    adminCredentialState: getAdminState(),
     unrecognisedFirebaseVariableNames: unexpectedFirebaseNames(process.env),
   });
 }

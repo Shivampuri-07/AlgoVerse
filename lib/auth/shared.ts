@@ -91,8 +91,10 @@ export function safeNextPath(value: string | null | undefined, fallback = "/acco
 
 /** GET /api/auth/status — setup state of this deployment. Names/states only, never values. */
 export interface AccountSetupStatus {
-  /** Server side: Firebase Admin credentials. */
-  server: "ok" | "missing" | "invalid" | "project_mismatch";
+  /** Server side: Firebase Admin credentials, or the SDK can't load on this server. */
+  server: "ok" | "missing" | "invalid" | "project_mismatch" | "sdk_unavailable";
+  /** Server Node.js version — only with details, and only when relevant (sdk_unavailable). */
+  node?: string;
   /** Whether setup details (variable names) may be shown on this deployment. */
   details: boolean;
   /** Firestore reachability, only reported when server is "ok" and details are allowed. */

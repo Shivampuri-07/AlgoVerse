@@ -63,6 +63,22 @@ to the project.
   `NEXT_PUBLIC_FIREBASE_*` values exist in an environment, its next build shows the
   "Sign in" button.
 
+## Node.js version (required)
+
+`firebase-admin` needs **Node.js 22** (or 20.19+). On Node.js 18 it can't load
+(`ERR_REQUIRE_ESM`), and every account API returns 500. `package.json` pins
+`"engines": { "node": "22.x" }`, which Vercel uses for deployments built from this branch.
+If Vercel → Settings → Build and Deployment → **Node.js Version** shows 18.x, change it to
+**22.x** as well. `/api/auth/diagnostics` reports `node.version` and `adminSdk`.
+
+## Test on a Preview deployment, not Production
+
+Variables you add for **Preview** only apply to Preview deployments. A deployment of this
+branch made to the **Production** environment (by "Promote to Production", or by redeploying
+with Environment = Production) uses the **Production** variables instead, so it reports the
+config as missing. `/api/auth/diagnostics` shows the deployment's `environment`. Use the branch
+URL `https://algo-verse-git-feat-accounts-firebase-algo-verse1.vercel.app`.
+
 ## Troubleshooting
 
 Three yes/no checks, none of which print a value:
@@ -71,7 +87,9 @@ Three yes/no checks, none of which print a value:
    `[algoverse] Firebase config seen by this build`. It lists `yes`/`NO` for each variable,
    the branch and commit, and any Firebase-like variable names the app doesn't recognise
    (typos, stray spaces).
-2. **`/api/auth/diagnostics`** on the deployment (Preview and local only, 404 on Production).
+2. **`/api/auth/diagnostics`** on the deployment. Production shows only the essentials:
+   `browserSignInConfigured`, `missingPublicVariables`, `adminCredentialState`,
+   `missingServerVariables`, `adminSdk` and `node`. Preview adds per-variable detail.
    For each public value it shows `inBuild` / `atRuntime`, plus `hasAdminCredential` and
    `adminCredentialState` (`ok` / `missing` / `invalid` / `project_mismatch`).
 3. **`/signup`** shows the same problems in plain words, including which deployment

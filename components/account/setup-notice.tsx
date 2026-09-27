@@ -51,6 +51,12 @@ function describe(
     case "invalid":
       out.push("FIREBASE_SERVICE_ACCOUNT_KEY is set but isn't a valid service-account JSON (or its private key is damaged). Paste the whole downloaded JSON file content again and redeploy.");
       break;
+    case "sdk_unavailable":
+      out.push(
+        `The server can't load Firebase Admin on its Node.js version${status.node ? ` (${status.node})` : ""}. ` +
+          "It needs Node.js 22 (the project pins 22.x in package.json). In Vercel → Settings → Build and Deployment → Node.js Version, choose 22.x, then redeploy this branch."
+      );
+      break;
     case "project_mismatch":
       out.push("FIREBASE_SERVICE_ACCOUNT_KEY belongs to a different Firebase project than NEXT_PUBLIC_FIREBASE_PROJECT_ID. Use a key from the same project.");
       break;

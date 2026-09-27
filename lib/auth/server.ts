@@ -11,6 +11,7 @@
  */
 import type { DecodedIdToken } from "firebase-admin/auth";
 import { getAdminAuth, getAdminState } from "@/lib/firebase/admin";
+import { jsonResponse } from "@/lib/http";
 import {
   AUTH_ERROR_MESSAGES,
   RECENT_SIGN_IN_SECONDS,
@@ -110,12 +111,7 @@ export function isRecentSignIn(authTimeSeconds: number, nowMs = Date.now()): boo
   return Number.isFinite(authTimeSeconds) && nowMs / 1000 - authTimeSeconds <= RECENT_SIGN_IN_SECONDS;
 }
 
-export function jsonResponse(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...headers },
-  });
-}
+export { jsonResponse };
 
 const STATUS: Record<AuthErrorCode, number> = {
   not_configured: 503,

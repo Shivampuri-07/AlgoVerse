@@ -231,24 +231,71 @@ test("the server credential is NOT needed for the browser config", withEnv({ ...
 
 const diagnosticsRoute = await import("@/app/api/auth/diagnostics/route");
 
-test("GET /api/auth/diagnostics: booleans only, never values", withEnv({ ...ALL, NEXT_PUBLIC_FIREBASE_APP_ID: undefined, FIREBASE_SERVICE_ACCOUNT_KEY: account(), VERCEL_ENV: "preview", "NEXT_PUBLIC_FIRBASE_APP_ID": "typo" }, async () => {
-  const res = diagnosticsRoute.GET();
+test("GET /api/auth/diagnostics (Preview): booleans and names only, never values", withEnv({ ...ALL, NEXT_PUBLIC_FIREBASE_APP_ID: undefined, FIREBASE_SERVICE_ACCOUNT_KEY: account(), VERCEL_ENV: "preview", "NEXT_PUBLIC_FIRBASE_APP_ID": "typo" }, async () => {
+  const res = await diagnosticsRoute.GET();
   assert.equal(res.status, 200);
   const text = await res.text();
   const body = JSON.parse(text);
+  assert.equal(body.browserSignInConfigured, false);
+  assert.deepEqual(body.missingPublicVariables, ["NEXT_PUBLIC_FIREBASE_APP_ID"]);
   assert.equal(body.publicConfig.hasApiKey.atRuntime, true);
   assert.equal(body.publicConfig.hasAppId.atRuntime, false);
-  assert.equal(body.browserSignInConfigured, false);
   assert.equal(body.hasAdminCredential, true);
+  assert.deepEqual(body.missingServerVariables, []);
   assert.deepEqual(body.unrecognisedFirebaseVariableNames, ['"NEXT_PUBLIC_FIRBASE_APP_ID"']);
   for (const secret of [ALL.NEXT_PUBLIC_FIREBASE_API_KEY, "algoverse-test.firebaseapp.com", "PRIVATE KEY", "svc@", "typo"]) {
     assert.ok(!text.includes(secret), `does not leak ${secret}`);
   }
 }));
 
-test("GET /api/auth/diagnostics is disabled on Production", withEnv({ VERCEL_ENV: "production" }, async () => {
-  assert.equal(diagnosticsRoute.GET().status, 404);
+test("GET /api/auth/diagnostics (Production): answers with essentials only — no 404, no detail", withEnv({ ...ALL, FIREBASE_SERVICE_ACCOUNT_KEY: undefined, VERCEL_ENV: "production", VERCEL_GIT_COMMIT_REF: "feat/x" }, async () => {
+  const res = await diagnosticsRoute.GET();
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.environment, "production");
+  assert.equal(body.browserSignInConfigured, true);
+  assert.deepEqual(body.missingPublicVariables, []);
+  assert.equal(body.adminCredentialState, "missing");
+  assert.deepEqual(body.missingServerVariables, ["FIREBASE_SERVICE_ACCOUNT_KEY"]);
+  for (const k of ["publicConfig", "deployment", "unrecognisedFirebaseVariableNames"]) assert.ok(!(k in body), `no ${k} on production`);
 }));
+
+const loaderMod = await import("@/lib/firebase/admin-loader");
+
+test("if firebase-admin can't load (e.g. Node 18: ERR_REQUIRE_ESM), status/diagnostics explain it instead of a 500", withEnv({ ...ALL, FIREBASE_SERVICE_ACCOUNT_KEY: account(), NEXT_PUBLIC_FIREBASE_PROJECT_ID: "algoverse-test", VERCEL_ENV: "preview" }, async () => {
+  loaderMod.setAdminLoaderForTests(() => Promise.reject(Object.assign(new Error("require() of ES Module"), { code: "ERR_REQUIRE_ESM" })));
+  try {
+    const diag = await diagnosticsRoute.GET();
+    assert.equal(diag.status, 200);
+    const d = await diag.json();
+    assert.equal(d.adminSdk, "load_failed");
+    assert.equal(d.adminSdkError, "ERR_REQUIRE_ESM");
+    const st = await statusRoute.GET();
+    assert.equal(st.status, 200);
+    const s = await st.json();
+    assert.equal(s.server, "sdk_unavailable");
+    assert.equal(s.node, process.versions.node);
+  } finally {
+    loaderMod.setAdminLoaderForTests(null);
+  }
+  const ok = await (await diagnosticsRoute.GET()).json();
+  assert.equal(ok.adminSdk, "ok", "real loader works on this Node version");
+  assert.equal(ok.adminCredentialState, "ok");
+}));
+
+test("Node.js support check for firebase-admin", () => {
+  assert.equal(loaderMod.nodeSupportsFirebaseAdmin("18.20.8"), false);
+  assert.equal(loaderMod.nodeSupportsFirebaseAdmin("20.18.0"), false);
+  assert.equal(loaderMod.nodeSupportsFirebaseAdmin("20.19.0"), true);
+  assert.equal(loaderMod.nodeSupportsFirebaseAdmin("22.1.0"), true);
+  assert.equal(loaderMod.nodeSupportsFirebaseAdmin("24.0.0"), true);
+});
+
+test("package.json pins a Node.js version firebase-admin supports", async () => {
+  const { readFileSync } = await import("node:fs");
+  const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+  assert.equal(pkg.engines?.node, "22.x");
+});
 
 test("build-log report prints yes/no and names, never values", async () => {
   const { firebaseEnvReport } = await import("@/scripts/firebase-env-report.mjs");

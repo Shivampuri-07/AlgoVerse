@@ -1,24 +1,26 @@
-import { jsonResponse } from "@/lib/auth/server";
-import { getAdminDb, getAdminState } from "@/lib/firebase/admin";
+import { jsonResponse } from "@/lib/http";
+import { checkCredential } from "@/lib/firebase/admin-credential";
+import { loadAdminSdk } from "@/lib/firebase/admin-loader";
 import { allowSetupDetails } from "@/lib/firebase/deployment";
 import type { AccountSetupStatus } from "@/lib/auth/shared";
 
 /**
  * GET /api/auth/status — is account sign-in usable on this deployment?
- * Reports state names only ("ok" | "missing" | "invalid" | "project_mismatch"), never a value.
- * The account pages use it to explain a setup problem before the visitor submits a form.
+ * Reports state names only, never a value. The account pages use it to explain a setup problem
+ * before the visitor submits a form. Doesn't import firebase-admin statically, so it still
+ * answers (with "sdk_unavailable") when the SDK can't load on this server.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type DatabaseState = "ok" | "missing" | "error" | "unknown";
+type DatabaseState = NonNullable<AccountSetupStatus["database"]>;
 let dbCache: { state: DatabaseState; at: number } | undefined;
 const DB_CACHE_MS = 60_000;
 
 /** One document read, cached for a minute: tells "database not created yet" apart from other errors. */
-async function databaseState(): Promise<DatabaseState> {
+async function databaseState(getDb: () => import("firebase-admin/firestore").Firestore | null): Promise<DatabaseState> {
   if (dbCache && Date.now() - dbCache.at < DB_CACHE_MS) return dbCache.state;
-  const db = getAdminDb();
+  const db = getDb();
   if (!db) return "unknown";
   let state: DatabaseState;
   try {
@@ -34,9 +36,17 @@ async function databaseState(): Promise<DatabaseState> {
 }
 
 export async function GET(): Promise<Response> {
-  const server = getAdminState();
   const details = allowSetupDetails();
-  const body: AccountSetupStatus = { server, details };
-  if (server === "ok" && details) body.database = await databaseState();
+  const credential = checkCredential().state;
+  if (credential !== "ok") return jsonResponse({ server: credential, details } satisfies AccountSetupStatus);
+
+  const sdk = await loadAdminSdk();
+  if (!sdk.ok) {
+    const body: AccountSetupStatus = { server: "sdk_unavailable", details };
+    if (details) body.node = process.versions.node;
+    return jsonResponse(body);
+  }
+  const body: AccountSetupStatus = { server: sdk.admin.getAdminState(), details };
+  if (body.server === "ok" && details) body.database = await databaseState(sdk.admin.getAdminDb);
   return jsonResponse(body);
 }
