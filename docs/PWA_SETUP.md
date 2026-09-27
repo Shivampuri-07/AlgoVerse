@@ -52,7 +52,7 @@ stale cached code.
 | `/_next/static/*` (hashed JS/CSS/fonts) | Cache-first (immutable files; max 250 entries). |
 | Icons, favicon, manifest | Stale-while-revalidate. |
 | `/api/*` — including the Gemini route `/api/ai` | **Not intercepted.** Always the network, never cached. |
-| Non-GET requests, other websites (LeetCode, GfG, TakeUForward…), RSC fetches | Not intercepted. |
+| Non-GET requests, other websites (LeetCode, GfG, TakeUForward, the YouTube player…), RSC fetches | Not intercepted. |
 
 On install the worker pre-caches `/offline` together with the CSS/JS files that page
 references, plus the icons and manifest. On activate it deletes caches from older versions
@@ -60,7 +60,9 @@ references, plus the icons and manifest. On activate it deletes caches from olde
 
 What works offline: pages you've visited (dashboard, problem lists, problem pages…), your
 progress, bookmarks, notes and streak (they're in `localStorage`). What needs a connection:
-the AI helper, "Solve on …" and "Read Article" links, and pages you haven't opened yet.
+the AI helper, "Solve on …" and "Read Article" links, Striver's videos (the player shows an
+"offline" message instead), and pages you haven't opened yet. Videos are never cached or
+downloaded — they always stream from YouTube's official embed.
 
 ## Gemini security
 

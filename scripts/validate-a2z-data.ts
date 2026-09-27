@@ -10,11 +10,17 @@ import { a2zProblems } from "../data/a2zProblems.ts";
 import { TOPICS } from "../data/topics.ts";
 import { SHARED_LINK_GROUPS, REVIEWED_EQUIVALENTS } from "../data/a2zLinkReview.ts";
 import { validateDataset, formatReport } from "../lib/dataset-validation.ts";
+import { STRIVER_VIDEOS } from "../data/striverVideos.ts";
+import { validateVideoMap, formatVideoReport } from "../lib/video-validation.ts";
 
 const report = validateDataset([...a2zProblems].sort((a, b) => a.order - b.order), TOPICS, {
   sharedLinkGroups: SHARED_LINK_GROUPS,
   reviewedEquivalents: REVIEWED_EQUIVALENTS,
 });
 
+const videos = validateVideoMap(STRIVER_VIDEOS, a2zProblems.map((p) => p.id));
+
 console.log(formatReport(report));
-if (!report.ok) process.exit(1);
+console.log("");
+console.log(formatVideoReport(videos));
+if (!report.ok || !videos.ok) process.exit(1);

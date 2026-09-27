@@ -1,0 +1,52 @@
+{
+  "_comment": "Manual review of the video candidates (see docs/STRIVER_VIDEOS.md). 'useA2zSheet': the takeuforward.org sheet page points this item at a different video than the problem's own lecture, so the classic A2Z sheet video (whose YouTube title names this exact problem) is used. 'exclude': no video is shown for this problem.",
+  "useA2zSheet": {
+    "174": "TUF sheet video is DP 53 (Palindrome Partitioning II); this item is the recursion problem, covered by L17. Palindrome Partitioning.",
+    "196": "TUF sheet points at the Basic Maths lecture; L2. Print all Divisors of a Number is this item's own video.",
+    "198": "TUF sheet video is L4 (prime factors); this item is the sieve/SPF version, L8. Smallest Prime Factor (SPF).",
+    "224": "TUF sheet video is DP 55; this is the stack-section item, L13. Maximal Rectangle | Stack and Queue Playlist.",
+    "280": "TUF sheet video is L10 (iterative inorder, item #284); recursive inorder is L6.",
+    "281": "TUF sheet video is L11 (2-stack postorder, item #285); recursive postorder is L7.",
+    "283": "TUF sheet video is L5 (recursive preorder, item #279); iterative preorder is L9.",
+    "286": "TUF sheet video is the 2-stack version; the 1-stack version is L12.",
+    "317": "TUF sheet video is L42 (Floor in BST); Ceil in BST is L41.",
+    "334": "TUF sheet video is G-6 (DFS); BFS is G-5.",
+    "340": "TUF sheet video is G-12 (DFS version); the BFS version is G-11.",
+    "351": "TUF sheet video is G-21 (DFS topo sort); Kahn's algorithm is G-22.",
+    "352": "TUF sheet video is the DFS version; the BFS (Kahn's) version is G-23.",
+    "370": "TUF sheet video is G-45 (Prim's, item #371); MST theory is G-44.",
+    "374": "TUF sheet video is G-45 (Prim's); Kruskal's algorithm is G-47.",
+    "395": "TUF sheet item 'Minimum Falling Path Sum' points at DP 10 (Minimum Path Sum, item #393); DP 12 is this problem.",
+    "397": "TUF sheet video is the recursion lecture L10. Subset Sum I; this DP item is DP 14.",
+    "408": "TUF sheet video is DP 26 (Print LCS, item #409); LCS itself is DP 25.",
+    "424": "TUF sheet video is DP 43 (binary-search LIS, item #426); this item is DP 41.",
+    "432": "TUF sheet video is DP 48 (item #431); the bottom-up version is DP 49."
+  },
+  "exclude": {
+    "41": "Only the A2Z sheet lists a video (the Arrays intro lecture) with a start time of 17224 s, which cannot be right for that lecture, and the video title doesn't name this problem.",
+    "326": "The A2Z sheet links L50. Binary Search Tree Iterator, which is a different problem.",
+    "332": "The A2Z sheet links G-2. Graph Representation in C++ for the Java item; the title doesn't match.",
+    "347": "The A2Z sheet links G-8. Number of Islands, which is a different problem from Number of Distinct Islands.",
+    "359": "Both sheets link G-35. Print Shortest Path - Dijkstra's Algorithm, not the Dijkstra lecture itself.",
+    "360": "Both sheets link G-35. Print Shortest Path - Dijkstra's Algorithm, which isn't about why a priority queue is used.",
+    "369": "Both sheets link G-38. Cheapest Flights Within K Stops, which is a different problem."
+  },
+  "tufItem": {
+    "_comment": "Problems whose official TakeUForward sheet item has a different title/slug (matched by hand).",
+    "11": "stl",
+    "111": "remove-outermost-parentheses",
+    "119": "maximum-nesting-depth-of-the-parentheses",
+    "120": "roman-to-integer",
+    "123": "longest-palindromic-substring",
+    "124": "sum-of-beauty-of-all-substrings",
+    "182": "introduction-to-bits-and-tricks",
+    "250": "replace-elements-by-their-rank",
+    "252": "hand-of-straights",
+    "258": "top-k-frequent-elements",
+    "395": "minimum-falling-path-sum",
+    "433": "minimum-cost-to-cut-the-stick"
+  },
+  "ignoreA2zSheet": {
+    "402": "The classic sheet row for 0/1 Knapsack (DP-19) carries the Assign Cookies video (a copy-paste slip in the sheet)."
+  }
+}

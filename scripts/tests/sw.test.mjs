@@ -127,6 +127,13 @@ test("never intercepts the Gemini route, other API routes, non-GET, cross-origin
   assert.equal((await dispatch("/sw.js")).intercepted, false);
 });
 
+test("never intercepts or caches the YouTube player (Striver video embeds)", async () => {
+  const { dispatch } = makeEnv();
+  assert.equal((await dispatch("/embed/UXDSeD9mN-k?rel=0", { mode: "navigate", origin: "https://www.youtube-nocookie.com" })).intercepted, false);
+  assert.equal((await dispatch("/watch?v=UXDSeD9mN-k", { origin: "https://www.youtube.com" })).intercepted, false);
+  assert.equal((await dispatch("/vi/UXDSeD9mN-k/hqdefault.jpg", { origin: "https://i.ytimg.com" })).intercepted, false);
+});
+
 test("the service worker source contains no secrets", () => {
   assert.ok(!/GEMINI_API_KEY|AIza|generativelanguage|x-goog-api-key|process\.env/.test(SW_SOURCE));
 });

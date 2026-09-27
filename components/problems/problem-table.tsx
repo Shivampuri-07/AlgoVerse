@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ExternalLink, FileText, ListChecks } from "lucide-react";
+import { ExternalLink, FileText, ListChecks, PlayCircle } from "lucide-react";
 import { getTopicById } from "@/data/topics";
 import { platformLabel, primaryPlatform } from "@/lib/constants";
 import { DifficultyBadge } from "@/components/problems/difficulty-badge";
@@ -12,12 +12,14 @@ import { EmptyState } from "@/components/problems/empty-state";
 import { ArticleButton } from "@/components/problems/platform-links";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { hasStriverVideo } from "@/lib/videos";
 import type { Problem } from "@/lib/types";
 
 function Meta({ problem, showTopic }: { problem: Problem; showTopic: boolean }) {
   const topic = getTopicById(problem.topic);
   const parts = [showTopic ? topic?.name : null, problem.section].filter(Boolean);
-  if (parts.length === 0 && !problem.kind && !problem.premium) return null;
+  const video = hasStriverVideo(problem.id);
+  if (parts.length === 0 && !problem.kind && !problem.premium && !video) return null;
   return (
     <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
       {parts.length > 0 && <span>{parts.join(" › ")}</span>}
@@ -29,6 +31,16 @@ function Meta({ problem, showTopic }: { problem: Problem; showTopic: boolean }) 
       {problem.premium && (
         <Badge variant="warning" className="px-1.5 py-0 text-[10px] font-normal">
           LC Premium
+        </Badge>
+      )}
+      {video && (
+        <Badge
+          variant="outline"
+          className="gap-0.5 px-1.5 py-0 text-[10px] font-normal"
+          title="Striver's video explanation available on the problem page"
+        >
+          <PlayCircle className="h-2.5 w-2.5" aria-hidden="true" />
+          Video
         </Badge>
       )}
     </div>
