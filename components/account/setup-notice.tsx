@@ -53,8 +53,9 @@ function describe(
       break;
     case "sdk_unavailable":
       out.push(
-        `The server can't load Firebase Admin on its Node.js version${status.node ? ` (${status.node})` : ""}. ` +
-          "It needs Node.js 22 (the project pins 22.x in package.json). In Vercel → Settings → Build and Deployment → Node.js Version, choose 22.x, then redeploy this branch."
+        `The server couldn't load the Firebase Admin SDK${status.node ? ` (Node.js ${status.node})` : ""}` +
+          (status.sdkError ? `: ${status.sdkError.code} — ${status.sdkError.message}` : ".") +
+          " Sign-in sessions can't be created until this is fixed. /api/auth/diagnostics has the details."
       );
       break;
     case "project_mismatch":

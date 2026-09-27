@@ -269,12 +269,14 @@ test("if firebase-admin can't load (e.g. Node 18: ERR_REQUIRE_ESM), status/diagn
     assert.equal(diag.status, 200);
     const d = await diag.json();
     assert.equal(d.adminSdk, "load_failed");
-    assert.equal(d.adminSdkError, "ERR_REQUIRE_ESM");
+    assert.equal(d.adminSdkError.code, "ERR_REQUIRE_ESM");
+    assert.match(d.adminSdkError.message, /require\(\) of ES Module/);
     const st = await statusRoute.GET();
     assert.equal(st.status, 200);
     const s = await st.json();
     assert.equal(s.server, "sdk_unavailable");
     assert.equal(s.node, process.versions.node);
+    assert.equal(s.sdkError.code, "ERR_REQUIRE_ESM", "the real error is reported, not a guess");
   } finally {
     loaderMod.setAdminLoaderForTests(null);
   }
@@ -314,4 +316,46 @@ test("build-log report prints yes/no and names, never values", async () => {
   for (const secret of [ALL.NEXT_PUBLIC_FIREBASE_API_KEY, "algoverse-test.firebaseapp.com", "PRIVATE KEY"]) {
     assert.ok(!report.includes(secret), `does not leak ${secret}`);
   }
+});
+
+test("load errors are reported safely: package-relative paths, keys and tokens redacted", () => {
+  const err = Object.assign(
+    new Error(
+      "require() of ES Module /var/task/node_modules/jose/dist/webapi/index.js from /var/task/node_modules/jwks-rsa/src/utils.js not supported. " +
+        "-----BEGIN PRIVATE KEY-----\nMIIEvQ\n-----END PRIVATE KEY----- eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijk AIzaSyA1234567890abcdefghijklmnop\nstack line"
+    ),
+    { code: "ERR_REQUIRE_ESM" }
+  );
+  const d = loaderMod.describeLoadError(err);
+  assert.equal(d.code, "ERR_REQUIRE_ESM");
+  assert.match(d.message, /jose\/dist\/webapi\/index\.js from jwks-rsa\/src\/utils\.js/);
+  for (const bad of ["/var/task", "BEGIN PRIVATE KEY", "MIIEvQ", "eyJhbGci", "AIzaSy", "stack line"]) {
+    assert.ok(!d.message.includes(bad), `redacts ${bad}`);
+  }
+  assert.ok(d.message.length <= 300);
+});
+
+test("firebase-admin loads even where require(esm) is unavailable (jwks-rsa's jose is overridden to a CJS build)", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const out = execFileSync(
+    process.execPath,
+    ["--no-experimental-require-module", "-e", 'require("firebase-admin/app");require("firebase-admin/auth");require("firebase-admin/firestore");console.log("ok")'],
+    { encoding: "utf8" }
+  );
+  assert.equal(out.trim(), "ok");
+  const { readFileSync } = await import("node:fs");
+  const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+  assert.equal(pkg.overrides?.["jwks-rsa"]?.jose, "5.10.0");
+});
+
+test("jwks-rsa's signing-key code path works with the overridden jose (importJWK + exportSPKI)", async () => {
+  const { createRequire } = await import("node:module");
+  const { generateKeyPairSync } = await import("node:crypto");
+  const req = createRequire(import.meta.url);
+  const { retrieveSigningKeys } = req("jwks-rsa/src/utils.js");
+  const jwk = { ...generateKeyPairSync("rsa", { modulusLength: 2048 }).publicKey.export({ format: "jwk" }), kid: "k1", use: "sig", alg: "RS256" };
+  const keys = await retrieveSigningKeys([jwk]);
+  assert.equal(keys.length, 1);
+  assert.equal(keys[0].kid, "k1");
+  assert.match(keys[0].getPublicKey(), /BEGIN PUBLIC KEY/);
 });

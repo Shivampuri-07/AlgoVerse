@@ -43,7 +43,10 @@ export async function GET(): Promise<Response> {
   const sdk = await loadAdminSdk();
   if (!sdk.ok) {
     const body: AccountSetupStatus = { server: "sdk_unavailable", details };
-    if (details) body.node = process.versions.node;
+    if (details) {
+      body.node = process.versions.node;
+      body.sdkError = sdk.error;
+    }
     return jsonResponse(body);
   }
   const body: AccountSetupStatus = { server: sdk.admin.getAdminState(), details };

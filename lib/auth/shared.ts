@@ -95,6 +95,8 @@ export interface AccountSetupStatus {
   server: "ok" | "missing" | "invalid" | "project_mismatch" | "sdk_unavailable";
   /** Server Node.js version — only with details, and only when relevant (sdk_unavailable). */
   node?: string;
+  /** Why the SDK failed to load (sanitised) — only with details. */
+  sdkError?: { code: string; message: string };
   /** Whether setup details (variable names) may be shown on this deployment. */
   details: boolean;
   /** Firestore reachability, only reported when server is "ok" and details are allowed. */

@@ -63,13 +63,20 @@ to the project.
   `NEXT_PUBLIC_FIREBASE_*` values exist in an environment, its next build shows the
   "Sign in" button.
 
-## Node.js version (required)
+## Node.js version and the Admin SDK
 
-`firebase-admin` needs **Node.js 22** (or 20.19+). On Node.js 18 it can't load
-(`ERR_REQUIRE_ESM`), and every account API returns 500. `package.json` pins
-`"engines": { "node": "22.x" }`, which Vercel uses for deployments built from this branch.
-If Vercel → Settings → Build and Deployment → **Node.js Version** shows 18.x, change it to
-**22.x** as well. `/api/auth/diagnostics` reports `node.version` and `adminSdk`.
+`package.json` pins `"engines": { "node": "22.x" }`, which matches `firebase-admin`'s own
+requirement. Its dependency `jwks-rsa@4` would normally `require()` the ESM-only `jose@6`.
+That only works while the runtime supports loading ES modules with `require()`, and it fails
+with `ERR_REQUIRE_ESM` otherwise (Node 18, or a runtime with that support disabled). To
+remove the dependency on it, `package.json` has an npm override
+(`"overrides": { "jwks-rsa": { "jose": "5.10.0" } }`). `jose@5` ships a CommonJS build and
+has the same `importJWK`/`exportSPKI` API that `jwks-rsa` uses. The tests prove
+`firebase-admin` loads with require-ESM disabled.
+
+If the Admin SDK still can't load, `/api/auth/diagnostics` reports the real, sanitised error
+(`adminSdkError.code` and `.message`) plus `node.version` and `node.requireEsmSupported`.
+The server log line `[auth] firebase-admin failed to load (…)` has the same information.
 
 ## Test on a Preview deployment, not Production
 

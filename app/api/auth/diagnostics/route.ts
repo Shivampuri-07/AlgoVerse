@@ -1,6 +1,6 @@
 import { jsonResponse } from "@/lib/http";
 import { checkCredential } from "@/lib/firebase/admin-credential";
-import { loadAdminSdk, nodeSupportsFirebaseAdmin } from "@/lib/firebase/admin-loader";
+import { loadAdminSdk, nodeSupportsFirebaseAdmin, requireEsmSupported } from "@/lib/firebase/admin-loader";
 import { PUBLIC_CONFIG_VARS, readPublicVars } from "@/lib/firebase/config";
 import { allowSetupDetails, deploymentInfo, vercelEnv } from "@/lib/firebase/deployment";
 import { getPublicConfigState, readRuntimePublicVars } from "@/lib/firebase/runtime-config";
@@ -36,7 +36,7 @@ export async function GET(): Promise<Response> {
   // Only try to load the SDK when there is a credential to use it with.
   let adminCredentialState: string = credential;
   let adminSdk: "ok" | "load_failed" | "not_checked" = "not_checked";
-  let adminSdkError: string | undefined;
+  let adminSdkError: { code: string; message: string } | undefined;
   if (credential === "ok") {
     const sdk = await loadAdminSdk();
     if (sdk.ok) {
@@ -44,7 +44,7 @@ export async function GET(): Promise<Response> {
       adminCredentialState = sdk.admin.getAdminState(); // may downgrade to "invalid" (damaged key)
     } else {
       adminSdk = "load_failed";
-      adminSdkError = sdk.errorCode;
+      adminSdkError = sdk.error;
     }
   }
 
@@ -56,8 +56,13 @@ export async function GET(): Promise<Response> {
     adminCredentialState,
     missingServerVariables: hasAdminCredential ? [] : [ADMIN_VAR],
     adminSdk,
-    ...(adminSdkError ? { adminSdkError } : {}),
-    node: { version: process.versions.node, supportedByFirebaseAdmin: nodeSupportsFirebaseAdmin() },
+    // Production: the error code only; Preview/local also get the sanitised message (below).
+    ...(adminSdkError ? { adminSdkError: { code: adminSdkError.code } } : {}),
+    node: {
+      version: process.versions.node,
+      supportedByFirebaseAdmin: nodeSupportsFirebaseAdmin(),
+      requireEsmSupported: requireEsmSupported(),
+    },
   };
   if (!allowSetupDetails()) return jsonResponse(essentials);
 
@@ -73,6 +78,7 @@ export async function GET(): Promise<Response> {
   }
   return jsonResponse({
     ...essentials,
+    ...(adminSdkError ? { adminSdkError } : {}),
     deployment: deploymentInfo(),
     publicConfig,
     publicConfigSource: resolved.source,
