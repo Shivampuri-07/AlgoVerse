@@ -4,25 +4,31 @@
  * Firebase Auth over HTTPS — AlgoVerse's server never sees or stores them.
  */
 import type { Auth, User } from "firebase/auth";
-import { getAuthEmulatorHost, getFirebasePublicConfig } from "@/lib/firebase/config";
+import type { FirebasePublicConfig } from "@/lib/firebase/config";
 import { AUTH_ERROR_MESSAGES, type AuthErrorCode, type SessionUser } from "@/lib/auth/shared";
 
 let authPromise: Promise<Auth> | null = null;
+let loadedFor: string | null = null;
 
-export function loadAuth(): Promise<Auth> {
-  if (authPromise) return authPromise;
-  const config = getFirebasePublicConfig();
-  if (!config) return Promise.reject(new Error("not_configured"));
+/**
+ * Loads Firebase Auth for the given public config (from useFirebaseSetup(), which merges the
+ * build-time and request-time values). Loaded once per page.
+ */
+export function loadAuth(config: FirebasePublicConfig | null, emulatorHost: string | null = null): Promise<Auth> {
+  if (!config) return Promise.reject(new AccountError("Accounts aren't set up on this site yet.", "not_configured"));
+  const key = `${config.projectId}|${config.apiKey}|${emulatorHost ?? ""}`;
+  if (authPromise && loadedFor === key) return authPromise;
+  loadedFor = key;
   authPromise = (async () => {
     const [{ initializeApp, getApps }, authMod] = await Promise.all([import("firebase/app"), import("firebase/auth")]);
     const app = getApps()[0] ?? initializeApp(config);
     const auth = authMod.getAuth(app);
-    const emulator = getAuthEmulatorHost();
-    if (emulator) authMod.connectAuthEmulator(auth, `http://${emulator}`, { disableWarnings: true });
+    if (emulatorHost) authMod.connectAuthEmulator(auth, `http://${emulatorHost}`, { disableWarnings: true });
     return auth;
   })();
   authPromise.catch(() => {
     authPromise = null;
+    loadedFor = null;
   });
   return authPromise;
 }

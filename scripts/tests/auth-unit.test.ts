@@ -187,3 +187,84 @@ test("GET /api/auth/status reports state names only — never credential values"
     assert.equal(((await (await statusRoute.GET()).json()) as { server: string }).server, "missing");
   })();
 });
+
+// ---------------------------------------------------------------- public web config resolution
+
+const ALL = {
+  NEXT_PUBLIC_FIREBASE_API_KEY: "AIzaTESTVALUE-api-key",
+  NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "algoverse-test.firebaseapp.com",
+  NEXT_PUBLIC_FIREBASE_PROJECT_ID: "algoverse-test",
+  NEXT_PUBLIC_FIREBASE_APP_ID: "1:123:web:abc",
+};
+
+test("all four public values present → configured (from the build)", () => {
+  const r = config.resolvePublicConfig(ALL, {});
+  assert.ok(r.config);
+  assert.equal(r.config!.projectId, "algoverse-test");
+  assert.deepEqual(r.missing, []);
+  assert.equal(r.source, "build");
+});
+
+test("build lacks the values but the deployment has them at runtime → still configured", () => {
+  const r = config.resolvePublicConfig({}, ALL);
+  assert.ok(r.config, "runtime fallback works");
+  assert.equal(r.source, "runtime");
+  const mixed = config.resolvePublicConfig({ ...ALL, NEXT_PUBLIC_FIREBASE_APP_ID: "" }, { NEXT_PUBLIC_FIREBASE_APP_ID: "1:123:web:abc" });
+  assert.ok(mixed.config);
+  assert.equal(mixed.source, "mixed");
+});
+
+test("one or more values absent (or whitespace) → exactly those names reported missing", () => {
+  const r = config.resolvePublicConfig({ ...ALL, NEXT_PUBLIC_FIREBASE_APP_ID: "   " }, {});
+  assert.equal(r.config, null);
+  assert.deepEqual(r.missing, ["NEXT_PUBLIC_FIREBASE_APP_ID"]);
+  const none = config.resolvePublicConfig({}, {});
+  assert.deepEqual(none.missing, [...config.PUBLIC_CONFIG_VARS]);
+  assert.equal(none.source, "none");
+});
+
+test("the server credential is NOT needed for the browser config", withEnv({ ...ALL, FIREBASE_SERVICE_ACCOUNT_KEY: undefined }, async () => {
+  const { getPublicConfigState } = await import("@/lib/firebase/runtime-config");
+  assert.ok(getPublicConfigState().config, "public config usable without the service account");
+  assert.equal(admin.getAdminState(), "missing", "server side reported separately");
+}));
+
+const diagnosticsRoute = await import("@/app/api/auth/diagnostics/route");
+
+test("GET /api/auth/diagnostics: booleans only, never values", withEnv({ ...ALL, NEXT_PUBLIC_FIREBASE_APP_ID: undefined, FIREBASE_SERVICE_ACCOUNT_KEY: account(), VERCEL_ENV: "preview", "NEXT_PUBLIC_FIRBASE_APP_ID": "typo" }, async () => {
+  const res = diagnosticsRoute.GET();
+  assert.equal(res.status, 200);
+  const text = await res.text();
+  const body = JSON.parse(text);
+  assert.equal(body.publicConfig.hasApiKey.atRuntime, true);
+  assert.equal(body.publicConfig.hasAppId.atRuntime, false);
+  assert.equal(body.browserSignInConfigured, false);
+  assert.equal(body.hasAdminCredential, true);
+  assert.deepEqual(body.unrecognisedFirebaseVariableNames, ['"NEXT_PUBLIC_FIRBASE_APP_ID"']);
+  for (const secret of [ALL.NEXT_PUBLIC_FIREBASE_API_KEY, "algoverse-test.firebaseapp.com", "PRIVATE KEY", "svc@", "typo"]) {
+    assert.ok(!text.includes(secret), `does not leak ${secret}`);
+  }
+}));
+
+test("GET /api/auth/diagnostics is disabled on Production", withEnv({ VERCEL_ENV: "production" }, async () => {
+  assert.equal(diagnosticsRoute.GET().status, 404);
+}));
+
+test("build-log report prints yes/no and names, never values", async () => {
+  const { firebaseEnvReport } = await import("@/scripts/firebase-env-report.mjs");
+  const report = firebaseEnvReport({
+    ...ALL,
+    NEXT_PUBLIC_FIREBASE_APP_ID: " ",
+    FIREBASE_SERVICE_ACCOUNT_KEY: account(),
+    "NEXT_PUBLIC_FIREBASE_API_KEY ": "x",
+    VERCEL_ENV: "preview",
+    VERCEL_GIT_COMMIT_REF: "feat/accounts-firebase",
+  });
+  assert.match(report, /yes\s+NEXT_PUBLIC_FIREBASE_API_KEY/);
+  assert.match(report, /NO\s+NEXT_PUBLIC_FIREBASE_APP_ID \(set but EMPTY\)/);
+  assert.match(report, /"NEXT_PUBLIC_FIREBASE_API_KEY "/, "trailing-space name flagged");
+  assert.match(report, /feat\/accounts-firebase/);
+  for (const secret of [ALL.NEXT_PUBLIC_FIREBASE_API_KEY, "algoverse-test.firebaseapp.com", "PRIVATE KEY"]) {
+    assert.ok(!report.includes(secret), `does not leak ${secret}`);
+  }
+});

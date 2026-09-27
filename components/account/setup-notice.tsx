@@ -5,7 +5,7 @@ import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 import { AuthCard } from "@/components/account/auth-card";
 import { Button } from "@/components/ui/button";
-import { missingPublicConfigVars, showSetupDetails } from "@/lib/firebase/config";
+import { useFirebaseSetup, type DeploymentInfo } from "@/components/providers/firebase-config-provider";
 import type { AccountSetupStatus } from "@/lib/auth/shared";
 
 export interface AccountSetup {
@@ -17,10 +17,18 @@ export interface AccountSetup {
   problems: string[];
 }
 
-const REDEPLOY =
-  "NEXT_PUBLIC_ values are built into the site, so redeploy after adding or changing them in Vercel (Deployments → ⋯ → Redeploy).";
+function describeDeployment(d: DeploymentInfo | null): string {
+  if (!d) return "";
+  const parts = [d.env, d.branch && `branch ${d.branch}`, d.commit && `commit ${d.commit}`].filter(Boolean);
+  return parts.length ? ` (This page was served by: ${parts.join(", ")}.)` : "";
+}
 
-function describe(missing: string[], status: AccountSetupStatus | null, details: boolean): string[] {
+function describe(
+  missing: string[],
+  status: AccountSetupStatus | null,
+  details: boolean,
+  deployment: DeploymentInfo | null
+): string[] {
   if (!details) {
     return missing.length || (status && status.server !== "ok")
       ? ["Sign-in is temporarily unavailable. Your progress on this device is safe — please try again later."]
@@ -28,11 +36,17 @@ function describe(missing: string[], status: AccountSetupStatus | null, details:
   }
   const out: string[] = [];
   if (missing.length) {
-    out.push(`This build has no Firebase web config: missing ${missing.join(", ")}. ${REDEPLOY}`);
+    out.push(
+      `Browser sign-in config not found — this deployment's environment has no value for ${missing.join(", ")}.` +
+        ` In Vercel → Settings → Environment Variables, check the exact names, that each is enabled for this` +
+        ` environment (and any "Preview branch" restriction matches this branch), then redeploy this branch.` +
+        describeDeployment(deployment) +
+        " Open /api/auth/diagnostics for a yes/no check of every setting."
+    );
   }
   switch (status?.server) {
     case "missing":
-      out.push("The server credential FIREBASE_SERVICE_ACCOUNT_KEY is not set, so sign-in sessions can't be created. Add it in Vercel (server-only, Sensitive) and redeploy.");
+      out.push("Server credential FIREBASE_SERVICE_ACCOUNT_KEY is not set, so sign-in sessions can't be created. The browser config is separate and is not affected by this. Add it in Vercel (Sensitive) and redeploy.");
       break;
     case "invalid":
       out.push("FIREBASE_SERVICE_ACCOUNT_KEY is set but isn't a valid service-account JSON (or its private key is damaged). Paste the whole downloaded JSON file content again and redeploy.");
@@ -49,8 +63,7 @@ function describe(missing: string[], status: AccountSetupStatus | null, details:
 
 /** Checks this deployment's account setup: build-time public config + server credentials. */
 export function useAccountSetup(): AccountSetup {
-  const missing = React.useMemo(() => missingPublicConfigVars(), []);
-  const details = showSetupDetails();
+  const { missing, details, deployment } = useFirebaseSetup();
   const [status, setStatus] = React.useState<AccountSetupStatus | null>(null);
   const [checking, setChecking] = React.useState(true);
 
@@ -69,7 +82,7 @@ export function useAccountSetup(): AccountSetup {
     };
   }, []);
 
-  const problems = checking ? [] : describe(missing, status, details);
+  const problems = checking ? [] : describe(missing, status, details, deployment);
   // An unreachable status endpoint (offline) doesn't block the form: the submit reports the real error.
   const blocking = missing.length > 0 || (status !== null && status.server !== "ok");
   return { checking, ready: !checking && !blocking, problems };

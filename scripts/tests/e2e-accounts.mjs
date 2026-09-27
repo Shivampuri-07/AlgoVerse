@@ -9,6 +9,15 @@ import { chromium } from "playwright-core";
 const AUTH = `http://${process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099"}`;
 const CONFIGURED = "http://localhost:3121";
 const UNCONFIGURED = "http://localhost:3122";
+// A build made WITHOUT the public values, served by a deployment whose environment HAS them.
+const RUNTIME_ONLY = "http://localhost:3123";
+const DEMO_PUBLIC = {
+  NEXT_PUBLIC_FIREBASE_API_KEY: "demo-api-key",
+  NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "demo-algoverse.firebaseapp.com",
+  NEXT_PUBLIC_FIREBASE_PROJECT_ID: "demo-algoverse",
+  NEXT_PUBLIC_FIREBASE_APP_ID: "1:000000000000:web:demo",
+  NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9099",
+};
 const STORAGE_KEY = "dsa-roadmap-storage";
 
 const servers = [];
@@ -42,7 +51,8 @@ before(async () => {
   const bare = { ...process.env };
   for (const k of ["FIREBASE_AUTH_EMULATOR_HOST", "FIRESTORE_EMULATOR_HOST", "FIREBASE_SERVICE_ACCOUNT_KEY", "FIREBASE_PROJECT_ID"]) delete bare[k];
   startServer(3122, ".next-e2e-nofb", bare);
-  await Promise.all([waitFor(`${CONFIGURED}/login`), waitFor(`${UNCONFIGURED}/login`)]);
+  startServer(3123, ".next-e2e-nofb", { ...process.env, ...DEMO_PUBLIC, FIREBASE_PROJECT_ID: "demo-algoverse" });
+  await Promise.all([waitFor(`${CONFIGURED}/login`), waitFor(`${UNCONFIGURED}/login`), waitFor(`${RUNTIME_ONLY}/login`)]);
   browser = await chromium.launch({ channel: "chrome", headless: true });
 });
 
@@ -102,6 +112,39 @@ test("no Firebase config: sign-up page explains exactly what's missing and disab
   assert.ok(await page.getByRole("button", { name: "Create account" }).isDisabled());
   await page.goto("/account");
   await page.getByText("Accounts aren't fully set up on this site yet").waitFor();
+  await context.close();
+});
+
+test("no Firebase config: /api/auth/diagnostics says which values are missing, without values", async () => {
+  const res = await fetch(`${UNCONFIGURED}/api/auth/diagnostics`);
+  assert.equal(res.status, 200);
+  const d = await res.json();
+  assert.equal(d.browserSignInConfigured, false);
+  assert.equal(d.publicConfig.hasApiKey.inBuild, false);
+  assert.equal(d.publicConfig.hasApiKey.atRuntime, false);
+  assert.equal(d.hasAdminCredential, false);
+});
+
+test("build WITHOUT public values + environment WITH them → no false warning, sign-up works", async () => {
+  const diag = await (await fetch(`${RUNTIME_ONLY}/api/auth/diagnostics`)).json();
+  assert.equal(diag.publicConfig.hasApiKey.inBuild, false, "this build really lacks the inlined values");
+  assert.equal(diag.publicConfig.hasApiKey.atRuntime, true);
+  assert.equal(diag.browserSignInConfigured, true);
+  assert.equal(diag.publicConfigSource, "runtime");
+
+  const { context, page } = await newPage(RUNTIME_ONLY);
+  await page.goto("/signup");
+  await page.waitForFunction(() => !document.querySelector('button[type="submit"]')?.disabled);
+  assert.equal(await page.getByText("Accounts aren't fully set up on this site yet").count(), 0, "no missing-config warning");
+  const email = `runtime-${Date.now()}@example.com`;
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password", { exact: true }).fill("letters123");
+  await page.getByLabel("Confirm password").fill("letters123");
+  await page.getByRole("button", { name: "Create account" }).click();
+  await page.waitForURL("**/account**");
+  await page.getByText(email).first().waitFor();
+  const cookie = (await context.cookies()).find((c) => c.name === "algoverse_session");
+  assert.ok(cookie?.httpOnly, "secure session cookie");
   await context.close();
 });
 

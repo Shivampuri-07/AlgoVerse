@@ -1,3 +1,6 @@
+import { PHASE_PRODUCTION_BUILD } from "next/constants.js";
+import { firebaseEnvReport } from "./scripts/firebase-env-report.mjs";
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -32,4 +35,12 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+export default function config(phase) {
+  // Build log line: which Firebase settings this build can see (names/booleans only).
+  // Next.js loads this file in several build workers; print once (workers inherit the marker).
+  if (phase === PHASE_PRODUCTION_BUILD && !process.env.__ALGOVERSE_ENV_REPORTED) {
+    process.env.__ALGOVERSE_ENV_REPORTED = "1";
+    console.log(firebaseEnvReport());
+  }
+  return nextConfig;
+}

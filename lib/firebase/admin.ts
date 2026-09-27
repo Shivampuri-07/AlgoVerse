@@ -14,6 +14,7 @@
 import { cert, deleteApp, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getAuth, type Auth } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
+import { getPublicConfigState } from "@/lib/firebase/runtime-config";
 
 const APP_NAME = "algoverse-admin";
 
@@ -65,6 +66,12 @@ export function parseServiceAccount(raw: string | undefined): Parsed {
   }
 }
 
+/** The public project id even when the rest of the web config is incomplete. */
+function readPublicProjectId(): string | undefined {
+  const name = "NEXT_PUBLIC_FIREBASE_PROJECT_ID";
+  return process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID?.trim() || process.env[name]?.trim() || undefined;
+}
+
 function usingEmulators(): boolean {
   return Boolean(process.env.FIREBASE_AUTH_EMULATOR_HOST || process.env.FIRESTORE_EMULATOR_HOST);
 }
@@ -78,7 +85,7 @@ function init(): { app: App | null; state: AdminState } {
 
   if (usingEmulators()) {
     const projectId =
-      process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "demo-algoverse";
+      process.env.FIREBASE_PROJECT_ID || readPublicProjectId() || "demo-algoverse";
     return (cached = { app: initializeApp({ projectId }, APP_NAME), state: "ok" });
   }
 
@@ -87,7 +94,7 @@ function init(): { app: App | null; state: AdminState } {
   const { account } = parsed;
 
   // A key from another project would make every ID token fail the audience check.
-  const publicProject = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID?.trim();
+  const publicProject = getPublicConfigState().config?.projectId ?? readPublicProjectId();
   if (publicProject && publicProject !== account.project_id) {
     return (cached = { app: null, state: "project_mismatch" });
   }

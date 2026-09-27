@@ -1,6 +1,6 @@
 import { jsonResponse } from "@/lib/auth/server";
 import { getAdminDb, getAdminState } from "@/lib/firebase/admin";
-import { showSetupDetails } from "@/lib/firebase/config";
+import { allowSetupDetails } from "@/lib/firebase/deployment";
 import type { AccountSetupStatus } from "@/lib/auth/shared";
 
 /**
@@ -35,7 +35,7 @@ async function databaseState(): Promise<DatabaseState> {
 
 export async function GET(): Promise<Response> {
   const server = getAdminState();
-  const details = showSetupDetails();
+  const details = allowSetupDetails();
   const body: AccountSetupStatus = { server, details };
   if (server === "ok" && details) body.database = await databaseState();
   return jsonResponse(body);

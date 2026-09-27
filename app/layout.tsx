@@ -6,6 +6,8 @@ import { AppProviders } from "@/components/providers/app-providers";
 import { AppShell } from "@/components/layout/app-shell";
 import { THEME_COOKIE, parseThemePreference, themeClassName } from "@/lib/theme";
 import { APP_NAME, APP_SHORT_DESCRIPTION } from "@/lib/constants";
+import { getPublicConfigState } from "@/lib/firebase/runtime-config";
+import { allowSetupDetails, deploymentInfo } from "@/lib/firebase/deployment";
 import "./globals.css";
 
 const inter = Inter({
@@ -65,10 +67,13 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   // The theme choice is a cookie, so the server renders <html> with the right class and the
   // client hydrates it unchanged — no theme script touching the DOM before React.
   const theme = parseThemePreference((await cookies()).get(THEME_COOKIE)?.value);
+  // Public Firebase web config, resolved per request so sign-in works even if a build didn't
+  // get the NEXT_PUBLIC_ values inlined. Public values only — never server credentials.
+  const firebase = { ...getPublicConfigState(), details: allowSetupDetails(), deployment: deploymentInfo() };
   return (
     <html lang="en" className={themeClassName(theme)}>
       <body className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
-        <AppProviders initialTheme={theme}>
+        <AppProviders initialTheme={theme} firebase={firebase}>
           <AppShell>{children}</AppShell>
         </AppProviders>
       </body>

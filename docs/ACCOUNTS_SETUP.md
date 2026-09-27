@@ -65,17 +65,40 @@ to the project.
 
 ## Troubleshooting
 
-Open `/signup` on the deployment. A yellow box lists each problem by **name** (never a value):
+Three yes/no checks, none of which print a value:
 
-| Message | Fix |
+1. **Build log.** Vercel → Deployments → the deployment → **Build Logs**. Look for
+   `[algoverse] Firebase config seen by this build`. It lists `yes`/`NO` for each variable,
+   the branch and commit, and any Firebase-like variable names the app doesn't recognise
+   (typos, stray spaces).
+2. **`/api/auth/diagnostics`** on the deployment (Preview and local only, 404 on Production).
+   For each public value it shows `inBuild` / `atRuntime`, plus `hasAdminCredential` and
+   `adminCredentialState` (`ok` / `missing` / `invalid` / `project_mismatch`).
+3. **`/signup`** shows the same problems in plain words, including which deployment
+   (branch and commit) served the page.
+
+The browser config is read at request time as well as build time. If the deployment's
+environment has the four `NEXT_PUBLIC_FIREBASE_*` values, sign-in works even if the build
+didn't inline them. If `atRuntime` is `false`, that deployment's environment really doesn't
+have them. Check:
+
+| Check | Where |
 |---|---|
-| "This build has no Firebase web config: missing NEXT_PUBLIC_…" | Add the named variables to that Vercel environment, then **redeploy**. `NEXT_PUBLIC_` values are built into the site, so a deployment built before you added them won't have them. |
-| "FIREBASE_SERVICE_ACCOUNT_KEY is not set" | Add it (step 7) and redeploy |
+| The exact variable names (no spaces, no typos) | Settings → Environment Variables |
+| Each variable is enabled for **Preview** | the variable's Environments column |
+| The variable's **Preview branch** field is empty, or set to `feat/accounts-firebase` | edit the variable → "Preview" → branch field |
+| The right Vercel project (the one deploying `algo-verse-git-feat-accounts-firebase-…`) | project name at the top of the dashboard |
+| A **new** deployment of the **feat/accounts-firebase** branch, created after saving | Deployments → filter by branch. Redeploying a `main` deployment doesn't build this branch. |
+
+Vercel applies variable changes only to deployments created after the change.
+
+| `/signup` message | Fix |
+|---|---|
+| "Browser sign-in config not found … NEXT_PUBLIC_…" | See the table above |
+| "Server credential FIREBASE_SERVICE_ACCOUNT_KEY is not set" | Add it (step 7) and redeploy. This is separate from the browser config. |
 | "…isn't a valid service-account JSON" | Paste the **entire** downloaded JSON again (including `{` `}`), or its base64 |
 | "…belongs to a different Firebase project" | The key and `NEXT_PUBLIC_FIREBASE_PROJECT_ID` must both be `algoverse-f5b48` |
 | "Firestore has no database yet" | Step 4 |
-
-`GET /api/auth/status` returns the same state as JSON (`server`: `ok` / `missing` / `invalid` / `project_mismatch`).
 
 ## Local development without touching the real project
 ```bash

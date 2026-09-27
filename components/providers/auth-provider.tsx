@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import type { Auth, User } from "firebase/auth";
-import { isFirebaseConfigured } from "@/lib/firebase/config";
+import { useFirebaseSetup } from "@/components/providers/firebase-config-provider";
 import {
   AccountError,
   continueUrl,
@@ -77,8 +77,10 @@ async function sendVerification(user: User) {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // Public config is built into the bundle; without it there is nothing to load.
-  const configured = isFirebaseConfigured();
+  // Public web config (build-time or request-time); without it there is nothing to load.
+  const { config, authEmulatorHost } = useFirebaseSetup();
+  const configured = config !== null;
+  const load = React.useCallback(() => loadAuth(config, authEmulatorHost), [config, authEmulatorHost]);
   const [status, setStatus] = React.useState<AuthStatus>(configured ? "loading" : "unavailable");
   const [user, setUser] = React.useState<SessionUser | null>(null);
 
@@ -98,7 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
-        const auth = await loadAuth();
+        const auth = await load();
         const { onAuthStateChanged, signOut } = await import("firebase/auth");
         if (cancelled) return;
         unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
@@ -139,14 +141,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       unsubscribe?.();
     };
-  }, [configured, applySignedIn, applySignedOut]);
+  }, [configured, load, applySignedIn, applySignedOut]);
 
   const value = React.useMemo<AuthContextValue>(
     () => ({
       status,
       user,
       async signIn(email, password) {
-        const auth = await loadAuth();
+        const auth = await load();
         const { signInWithEmailAndPassword } = await import("firebase/auth");
         const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
         const session = await sessionOrSignOut(auth, cred.user);
@@ -154,7 +156,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return session;
       },
       async signUp(email, password) {
-        const auth = await loadAuth();
+        const auth = await load();
         const { createUserWithEmailAndPassword } = await import("firebase/auth");
         const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
         // A failed verification email must not block the account; it can be resent from /account.
@@ -170,13 +172,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       async signOut(opts) {
         // Server first: with `everywhere` the revocation needs the still-valid session.
         await deleteServerSession(Boolean(opts?.everywhere));
-        const auth = await loadAuth();
+        const auth = await load();
         const { signOut } = await import("firebase/auth");
         await signOut(auth);
         applySignedOut();
       },
       async sendPasswordReset(email) {
-        const auth = await loadAuth();
+        const auth = await load();
         const { sendPasswordResetEmail } = await import("firebase/auth");
         try {
           await sendPasswordResetEmail(auth, email.trim(), { url: continueUrl("/login") });
@@ -192,12 +194,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       },
       async resendVerification() {
-        const auth = await loadAuth();
+        const auth = await load();
         if (!auth.currentUser) throw new AccountError("For your security, please sign in again first.", "stale_sign_in");
         await sendVerification(auth.currentUser);
       },
       async refresh() {
-        const auth = await loadAuth();
+        const auth = await load();
         const current = auth.currentUser;
         if (!current) return;
         await current.reload();
@@ -209,7 +211,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser((u) => (u ? { ...u, displayName: name } : u));
       },
     }),
-    [status, user, applySignedIn, applySignedOut]
+    [status, user, load, applySignedIn, applySignedOut]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
