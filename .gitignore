@@ -40,3 +40,11 @@ next-env.d.ts
 # python caches (scripts/a2z-build)
 __pycache__/
 *.pyc
+
+# firebase emulators / CLI
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.firebase/
+/.next-e2e/
+/.next-e2e-nofb/

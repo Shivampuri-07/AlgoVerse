@@ -150,6 +150,30 @@ test("navigation: network-first, saved for offline, falls back to the saved copy
   assert.match(offlineNew.text, /offline/, "unvisited page shows the offline page");
 });
 
+test("private account pages are never cached and show /offline when there is no network", async () => {
+  const { env, lifecycle, dispatch } = makeEnv({
+    pages: { "/account": "<html>signed-in user@example.com</html>", "/account/billing": "<html>billing</html>" },
+  });
+  await lifecycle("install");
+  const online = await dispatch("/account", { mode: "navigate" });
+  assert.equal(online.text, "<html>signed-in user@example.com</html>");
+  await dispatch("/account/billing", { mode: "navigate" });
+  const cachedUrls = [...env.stores.values()].flatMap((m) => [...m.keys()].map((u) => new URL(u).pathname));
+  assert.ok(!cachedUrls.some((p) => p.startsWith("/account")), "no /account page in any cache");
+  env.online = false;
+  const offline = await dispatch("/account", { mode: "navigate" });
+  assert.match(offline.text, /offline/);
+  assert.doesNotMatch(offline.text, /user@example\.com/);
+});
+
+test("pages that merely start with the same letters are still cached normally", async () => {
+  const { env, lifecycle, dispatch } = makeEnv({ pages: { "/accounting-notes": "<html>public</html>" } });
+  await lifecycle("install");
+  await dispatch("/accounting-notes", { mode: "navigate" });
+  env.online = false;
+  assert.equal((await dispatch("/accounting-notes", { mode: "navigate" })).text, "<html>public</html>");
+});
+
 test("static build assets are cache-first; icons stale-while-revalidate", async () => {
   const { env, dispatch } = makeEnv();
   await dispatch("/_next/static/chunks/page-abc.js");

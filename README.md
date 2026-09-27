@@ -205,6 +205,14 @@ Data from the earlier version is migrated automatically on first load:
 interface (`getItem`, `setItem`, `removeItem`) against your backend in
 `lib/storage-adapter.ts` and swap it into the `persist(...)` call in `lib/store.ts`.
 
+## Accounts (optional, Firebase)
+
+Sign-up, sign-in, email verification, password reset and an account page are built in, and
+stay hidden until Firebase is configured. Without it the app works exactly as before,
+local-only. Signing in never changes the progress stored on the device. Setup:
+[docs/ACCOUNTS_SETUP.md](docs/ACCOUNTS_SETUP.md). Architecture and roadmap:
+[docs/SAAS_ARCHITECTURE.md](docs/SAAS_ARCHITECTURE.md).
+
 ## Striver's video explanations
 
 Problem pages have a **Striver's Video Explanation** section with the explanation video from

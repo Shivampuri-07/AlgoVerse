@@ -1,0 +1,36 @@
+rules_version = '2';
+
+// AlgoVerse Firestore security rules.
+//
+// The web app writes ONLY through its own server (Next.js route handlers using the Admin SDK,
+// which bypasses these rules and authorises every request itself — see lib/auth/server.ts).
+// These rules are the second line of defence for anyone talking to Firestore directly with
+// the public web config:
+//   - a signed-in user may READ their own profile (and, later, their own synced data);
+//   - nobody may WRITE anything from a client — so plan, subscription, payment and AI-usage
+//     records can never be forged from a browser;
+//   - everything not listed is denied.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    match /users/{uid} {
+      allow get: if isOwner(uid);
+      allow list, create, update, delete: if false;
+
+      // Per-user private data (progress, bookmarks, notes — Phase 2). Owner read-only.
+      match /{collection}/{docId} {
+        allow get, list: if isOwner(uid);
+        allow create, update, delete: if false;
+      }
+    }
+
+    // Server-only collections (subscriptions, payments, entitlements, aiUsage, webhookEvents…)
+    // and anything else: no client access at all.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

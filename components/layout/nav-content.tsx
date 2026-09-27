@@ -2,12 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, ListChecks, Star, Settings, ChevronRight } from "lucide-react";
+import { LayoutDashboard, ListChecks, Star, Settings, ChevronRight, UserRound } from "lucide-react";
 import { TOPIC_CATEGORIES } from "@/data/topics";
 import { useAppStore } from "@/lib/store";
 import { getTopicProgress } from "@/lib/progress";
 import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
+
+const FOOTER_LINKS = [
+  { href: "/account", label: "Account", icon: UserRound },
+  { href: "/settings", label: "Settings", icon: Settings },
+];
 
 const PRIMARY_LINKS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -89,20 +94,27 @@ export function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       <div className="space-y-1 border-t border-border pt-3">
-        <Link
-          href="/settings"
-          onClick={onNavigate}
-          aria-current={pathname === "/settings" ? "page" : undefined}
-          className={cn(
-            "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-            pathname === "/settings"
-              ? "bg-primary/10 text-primary"
-              : "text-foreground/80 hover:bg-accent hover:text-foreground"
-          )}
-        >
-          <Settings className="h-4 w-4" />
-          Settings
-        </Link>
+        {FOOTER_LINKS.map((link) => {
+          const active = pathname === link.href;
+          const Icon = link.icon;
+          return (
+            <Link
+              key={link.href}
+              href={link.href}
+              onClick={onNavigate}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                active
+                  ? "bg-primary/10 text-primary"
+                  : "text-foreground/80 hover:bg-accent hover:text-foreground"
+              )}
+            >
+              <Icon className="h-4 w-4" />
+              {link.label}
+            </Link>
+          );
+        })}
       </div>
     </nav>
   );

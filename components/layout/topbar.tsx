@@ -7,6 +7,7 @@ import { APP_NAME } from "@/lib/constants";
 import { useUIStore } from "@/lib/ui-store";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { RandomProblemButton } from "@/components/problems/random-problem-button";
+import { AccountMenu } from "@/components/account/account-menu";
 
 export function Topbar() {
   const setCommandOpen = useUIStore((s) => s.setCommandOpen);
@@ -37,6 +38,7 @@ export function Topbar() {
           <RandomProblemButton />
         </div>
         <ThemeToggle />
+        <AccountMenu />
       </div>
     </header>
   );

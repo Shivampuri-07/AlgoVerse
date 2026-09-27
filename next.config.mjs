@@ -4,9 +4,9 @@ const nextConfig = {
   // Separate build folder for scripts/mac-verify.command (NEXT_DIST_DIR=.next-verify), so a
   // verification build never overwrites the .next folder a running `npm run dev` is using.
   distDir: process.env.NEXT_DIST_DIR || ".next",
-  // The Gemini SDK is only used by the server route; load it from node_modules instead of
-  // bundling it (it pulls in Node-only auth/websocket libraries).
-  serverExternalPackages: ["@google/genai"],
+  // The Gemini SDK and the Firebase Admin SDK are server-only; load them from node_modules
+  // instead of bundling them (they pull in Node-only auth/gRPC/websocket libraries).
+  serverExternalPackages: ["@google/genai", "firebase-admin"],
   // Next.js 15 streams page metadata into <body> for regular browsers. iOS only reads the
   // apple-mobile-web-app-* tags (and some browsers the manifest link) from <head>, so render
   // metadata up front for every user agent.
