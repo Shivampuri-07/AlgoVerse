@@ -22,35 +22,44 @@ function initialOf(name: string | null, email: string | null): string {
   return source.charAt(0).toUpperCase();
 }
 
-/** Top-bar account entry: "Sign in" when signed out, an avatar menu when signed in. */
+/**
+ * Top-bar account entry. Signed out — and also when accounts aren't configured on this
+ * deployment — it shows "Log in" and "Sign up" (the pages then explain any setup problem).
+ * Signed in, it shows an avatar menu with the email, Account and Log out.
+ */
 export function AccountMenu() {
   const { status, user, signOut } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
 
-  if (status === "unavailable") return null;
   if (status === "loading") {
-    return <div className="h-9 w-9 animate-pulse rounded-full bg-muted" aria-hidden />;
+    return <div className="h-9 w-20 animate-pulse rounded-lg bg-muted" aria-hidden />;
   }
-  if (status === "signed-out" || !user) {
-    const next = AUTH_PAGES.includes(pathname) ? "" : `?next=${encodeURIComponent(pathname)}`;
+
+  if (status !== "signed-in" || !user) {
+    const next = AUTH_PAGES.includes(pathname) || pathname === "/" ? "" : `?next=${encodeURIComponent(pathname)}`;
     return (
-      <Button asChild variant="outline" size="sm" className="h-9">
-        <Link href={`/login${next}`}>
-          <LogIn className="h-4 w-4" />
-          <span className="hidden sm:inline">Sign in</span>
-        </Link>
-      </Button>
+      <div className="flex items-center gap-1.5">
+        <Button asChild variant="ghost" size="sm" className="h-9 px-2.5 sm:px-3">
+          <Link href={`/login${next}`} aria-label="Log in">
+            <LogIn className="h-4 w-4" />
+            <span className="hidden sm:inline">Log in</span>
+          </Link>
+        </Button>
+        <Button asChild size="sm" className="h-9 px-3">
+          <Link href={`/signup${next}`}>Sign up</Link>
+        </Button>
+      </div>
     );
   }
 
   async function handleSignOut() {
     try {
       await signOut();
-      toast.success("Signed out. Your progress on this device is unchanged.");
+      toast.success("Logged out. Your progress on this device is unchanged.");
       if (pathname.startsWith("/account")) router.replace("/");
     } catch {
-      toast.error("Couldn't sign out. Check your connection and try again.");
+      toast.error("Couldn't log out. Check your connection and try again.");
     }
   }
 
@@ -60,15 +69,18 @@ export function AccountMenu() {
         <button
           type="button"
           className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary transition-colors hover:bg-primary/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label="Account menu"
+          aria-label={`Account menu for ${user.email ?? "your account"}`}
         >
           {initialOf(user.displayName, user.email)}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent align="end" className="w-60">
         <DropdownMenuLabel className="font-normal">
+          <p className="text-xs text-muted-foreground">Signed in as</p>
           {user.displayName && <p className="truncate text-sm font-medium">{user.displayName}</p>}
-          <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+          <p className="truncate text-sm" data-testid="account-email">
+            {user.email}
+          </p>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
@@ -79,7 +91,7 @@ export function AccountMenu() {
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={handleSignOut}>
           <LogOut className="h-4 w-4" />
-          Sign out
+          Log out
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

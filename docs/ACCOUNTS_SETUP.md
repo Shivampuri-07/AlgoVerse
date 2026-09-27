@@ -1,7 +1,9 @@
 # Accounts setup (Firebase): steps for the project owner
 
-The code for accounts is in the repository. It stays **switched off** until the environment
-variables below are set, so the live site keeps working exactly as before in the meantime.
+The code for accounts is in the repository. **Log in / Sign up are always visible.** Until the
+environment variables below are set, the account pages explain what is missing (on
+non-production deployments; production just says sign-in is temporarily unavailable), and the
+rest of the site keeps working exactly as before.
 All of these steps happen in the Firebase console or Vercel. **Never paste keys or the
 service-account file into chat, an issue, or a commit.**
 
@@ -61,6 +63,20 @@ to the project.
   `NEXT_PUBLIC_FIREBASE_*` values exist in an environment, its next build shows the
   "Sign in" button.
 
+## Troubleshooting
+
+Open `/signup` on the deployment. A yellow box lists each problem by **name** (never a value):
+
+| Message | Fix |
+|---|---|
+| "This build has no Firebase web config: missing NEXT_PUBLIC_…" | Add the named variables to that Vercel environment, then **redeploy**. `NEXT_PUBLIC_` values are built into the site, so a deployment built before you added them won't have them. |
+| "FIREBASE_SERVICE_ACCOUNT_KEY is not set" | Add it (step 7) and redeploy |
+| "…isn't a valid service-account JSON" | Paste the **entire** downloaded JSON again (including `{` `}`), or its base64 |
+| "…belongs to a different Firebase project" | The key and `NEXT_PUBLIC_FIREBASE_PROJECT_ID` must both be `algoverse-f5b48` |
+| "Firestore has no database yet" | Step 4 |
+
+`GET /api/auth/status` returns the same state as JSON (`server`: `ok` / `missing` / `invalid` / `project_mismatch`).
+
 ## Local development without touching the real project
 ```bash
 npx -y firebase-tools@15.31.0 emulators:start --only auth,firestore --project demo-algoverse
@@ -74,6 +90,10 @@ Emulator emails are not sent; their links are printed in the emulator's terminal
 - `npm test`: existing suites plus auth unit tests (no emulator needed)
 - `npm run test:firebase`: starts the emulators and runs the Firestore rules tests and the
   account API integration tests (needs Java 21+)
+- `npm run test:e2e`: builds the app twice (emulator config, and no config) and drives
+  Google Chrome through Log in / Sign up visibility, validation, sign-up, session cookie,
+  refresh, log out, log in, two isolated users, forgot password, and checks local progress is
+  untouched (needs Chrome and Java 21+)
 - `npm run build && npm run check:secrets`: fails if a server secret reaches the browser bundle
 
 ## How it works (short)

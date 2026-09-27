@@ -48,14 +48,3 @@ export function FormMessage({ tone, children }: { tone: "error" | "success"; chi
     </p>
   );
 }
-
-export function AccountsUnavailable() {
-  return (
-    <AuthCard
-      title="Accounts are coming soon"
-      description="Sign-in isn't enabled on this deployment yet. Everything else works as before, and your progress stays saved on this device."
-    >
-      <p className="text-sm text-muted-foreground">No account is needed to use the roadmap, videos or progress tracking.</p>
-    </AuthCard>
-  );
-}

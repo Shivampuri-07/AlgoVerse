@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import type { User } from "firebase/auth";
+import type { Auth, User } from "firebase/auth";
 import { isFirebaseConfigured } from "@/lib/firebase/config";
 import {
   AccountError,
@@ -42,6 +42,27 @@ interface AuthContextValue {
 
 const AuthContext = React.createContext<AuthContextValue | null>(null);
 
+/** Session errors that retrying with the same Firebase sign-in can't fix. */
+const FINAL_SESSION_ERRORS = new Set([
+  "stale_sign_in",
+  "unauthenticated",
+  "not_configured",
+  "server_credentials_invalid",
+  "project_mismatch",
+]);
+
+/** Exchanges the sign-in for a server session; on failure signs the browser out and rethrows. */
+async function sessionOrSignOut(auth: Auth, fbUser: User, prefix = ""): Promise<SessionUser> {
+  try {
+    return await createServerSession(fbUser);
+  } catch (err) {
+    const { signOut } = await import("firebase/auth");
+    await signOut(auth).catch(() => {});
+    if (prefix && err instanceof AccountError) throw new AccountError(`${prefix} ${err.message}`, err.code);
+    throw err;
+  }
+}
+
 async function sendVerification(user: User) {
   const { sendEmailVerification } = await import("firebase/auth");
   try {
@@ -56,6 +77,7 @@ async function sendVerification(user: User) {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  // Public config is built into the bundle; without it there is nothing to load.
   const configured = isFirebaseConfigured();
   const [status, setStatus] = React.useState<AuthStatus>(configured ? "loading" : "unavailable");
   const [user, setUser] = React.useState<SessionUser | null>(null);
@@ -91,8 +113,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               try {
                 applySignedIn(await createServerSession(fbUser));
               } catch (err) {
-                // Old sign-in (session expired after two weeks) or revoked: sign in again.
-                if (err instanceof AccountError && (err.code === "stale_sign_in" || err.code === "unauthenticated")) {
+                // Old sign-in (session expired after two weeks), revoked, or the server can't
+                // create sessions (setup problem): sign the browser out too, so both sides agree.
+                if (err instanceof AccountError && FINAL_SESSION_ERRORS.has(err.code)) {
                   await signOut(auth);
                   applySignedOut();
                 } else if (server === null) {
@@ -126,7 +149,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const auth = await loadAuth();
         const { signInWithEmailAndPassword } = await import("firebase/auth");
         const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
-        const session = await createServerSession(cred.user);
+        const session = await sessionOrSignOut(auth, cred.user);
         applySignedIn(session);
         return session;
       },
@@ -136,7 +159,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
         // A failed verification email must not block the account; it can be resent from /account.
         await sendVerification(cred.user).catch(() => {});
-        const session = await createServerSession(cred.user);
+        const session = await sessionOrSignOut(
+          auth,
+          cred.user,
+          "Your account was created, but you couldn't be signed in yet:"
+        );
         applySignedIn(session);
         return session;
       },

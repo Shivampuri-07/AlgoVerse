@@ -46,3 +46,5 @@ firebase-debug.log
 firestore-debug.log
 ui-debug.log
 .firebase/
+/.next-e2e/
+/.next-e2e-nofb/

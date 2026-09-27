@@ -29,6 +29,8 @@ export interface AccountProfile extends SessionUser {
 
 export type AuthErrorCode =
   | "not_configured"
+  | "server_credentials_invalid"
+  | "project_mismatch"
   | "bad_request"
   | "unauthenticated"
   | "forbidden"
@@ -36,7 +38,9 @@ export type AuthErrorCode =
   | "unavailable";
 
 export const AUTH_ERROR_MESSAGES: Record<AuthErrorCode, string> = {
-  not_configured: "Accounts aren't available yet.",
+  not_configured: "Accounts aren't set up on the server yet.",
+  server_credentials_invalid: "Accounts are temporarily unavailable (server credentials problem). Please try again later.",
+  project_mismatch: "Accounts are temporarily unavailable (configuration problem). Please try again later.",
   bad_request: "That request couldn't be processed.",
   unauthenticated: "Please sign in to continue.",
   forbidden: "This request isn't allowed.",
@@ -83,4 +87,14 @@ export function safeNextPath(value: string | null | undefined, fallback = "/acco
   if (!value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) return fallback;
   if (/[\u0000-\u001f]/.test(value)) return fallback;
   return value;
+}
+
+/** GET /api/auth/status — setup state of this deployment. Names/states only, never values. */
+export interface AccountSetupStatus {
+  /** Server side: Firebase Admin credentials. */
+  server: "ok" | "missing" | "invalid" | "project_mismatch";
+  /** Whether setup details (variable names) may be shown on this deployment. */
+  details: boolean;
+  /** Firestore reachability, only reported when server is "ok" and details are allowed. */
+  database?: "ok" | "missing" | "error" | "unknown";
 }

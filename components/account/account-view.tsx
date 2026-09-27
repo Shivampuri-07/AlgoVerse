@@ -58,9 +58,10 @@ export function AccountView({
     }
   }, [params, refresh]);
 
-  // If this browser signs out (e.g. in another tab), leave the protected page.
+  // Once this browser is signed out (the menu's Log out, or another tab), leave the protected
+  // page for the dashboard.
   React.useEffect(() => {
-    if (status === "signed-out") router.replace("/login?next=/account");
+    if (status === "signed-out") router.replace("/");
   }, [status, router]);
 
   async function saveName(e: React.FormEvent) {

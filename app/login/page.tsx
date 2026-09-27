@@ -5,49 +5,66 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
-import { AccountsUnavailable, AuthCard, FormMessage } from "@/components/account/auth-card";
+import { AuthCard, FormMessage } from "@/components/account/auth-card";
+import { FieldError, PasswordInput } from "@/components/account/password-input";
+import { SetupNotice, useAccountSetup } from "@/components/account/setup-notice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { firebaseErrorMessage } from "@/lib/auth/client";
 import { isValidEmail, safeNextPath } from "@/lib/auth/shared";
 
+interface Errors {
+  email?: string;
+  password?: string;
+}
+
+function validate(email: string, password: string): Errors {
+  const errors: Errors = {};
+  if (!email.trim()) errors.email = "Enter your email address.";
+  else if (!isValidEmail(email.trim())) errors.email = "Enter a valid email address.";
+  if (!password) errors.password = "Enter your password.";
+  return errors;
+}
+
 function LoginForm() {
   const { status, signIn } = useAuth();
+  const setup = useAccountSetup();
   const router = useRouter();
   const params = useSearchParams();
   const next = safeNextPath(params.get("next"));
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
-  const [error, setError] = React.useState<string | null>(null);
+  const [errors, setErrors] = React.useState<Errors>({});
+  const [formError, setFormError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
     if (status === "signed-in" && !busy) router.replace(next);
   }, [status, busy, next, router]);
 
-  if (status === "unavailable") return <AccountsUnavailable />;
-
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
-    if (!isValidEmail(email.trim())) return setError("Enter a valid email address.");
-    if (!password) return setError("Enter your password.");
+    setFormError(null);
+    const found = validate(email, password);
+    setErrors(found);
+    if (found.email || found.password) return;
     setBusy(true);
     try {
       await signIn(email, password);
       router.replace(next);
     } catch (err) {
-      setError(firebaseErrorMessage(err));
+      setFormError(firebaseErrorMessage(err));
       setBusy(false);
     }
   }
 
   const signupHref = `/signup${next !== "/account" ? `?next=${encodeURIComponent(next)}` : ""}`;
+  const disabled = busy || !setup.ready || status === "loading";
 
   return (
     <AuthCard
-      title="Sign in"
+      title="Log in"
       description="Welcome back. Your progress on this device stays as it is."
       footer={
         <>
@@ -58,8 +75,9 @@ function LoginForm() {
         </>
       }
     >
-      <form onSubmit={onSubmit} className="space-y-4" noValidate>
-        {error && <FormMessage tone="error">{error}</FormMessage>}
+      <form onSubmit={onSubmit} className="space-y-4" noValidate aria-label="Log in">
+        <SetupNotice problems={setup.problems} />
+        {formError && <FormMessage tone="error">{formError}</FormMessage>}
         <div className="space-y-2">
           <Label htmlFor="email">Email</Label>
           <Input
@@ -70,8 +88,10 @@ function LoginForm() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             disabled={busy}
-            required
+            aria-invalid={Boolean(errors.email)}
+            aria-describedby={errors.email ? "email-error" : undefined}
           />
+          <FieldError id="email-error" message={errors.email} />
         </div>
         <div className="space-y-2">
           <div className="flex items-center justify-between">
@@ -80,19 +100,20 @@ function LoginForm() {
               Forgot password?
             </Link>
           </div>
-          <Input
+          <PasswordInput
             id="password"
-            type="password"
             autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             disabled={busy}
-            required
+            aria-invalid={Boolean(errors.password)}
+            aria-describedby={errors.password ? "password-error" : undefined}
           />
+          <FieldError id="password-error" message={errors.password} />
         </div>
-        <Button type="submit" className="w-full" disabled={busy || status === "loading"}>
-          {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-          {busy ? "Signing in…" : "Sign in"}
+        <Button type="submit" className="w-full" disabled={disabled}>
+          {(busy || setup.checking) && <Loader2 className="h-4 w-4 animate-spin" />}
+          {busy ? "Logging in…" : "Log in"}
         </Button>
       </form>
     </AuthCard>

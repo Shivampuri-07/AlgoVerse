@@ -1,6 +1,8 @@
 import { getAdminAuth } from "@/lib/firebase/admin";
 import {
+  adminUnavailableError,
   authError,
+  isCredentialError,
   clearSessionCookieHeader,
   getRequestUser,
   isRecentSignIn,
@@ -28,6 +30,12 @@ function sessionUser(u: { uid: string; email: string | null; emailVerified: bool
   return { uid: u.uid, email: u.email, emailVerified: u.emailVerified, displayName };
 }
 
+/** Logs the error code only — never the message, which can echo request details. */
+function logged(step: string, err: unknown, res: Response): Response {
+  console.error(`[auth] ${step} failed (${(err as { code?: unknown })?.code ?? "unknown"})`);
+  return res;
+}
+
 export async function GET(req: Request): Promise<Response> {
   if (!getAdminAuth()) return jsonResponse({ user: null, configured: false });
   const user = await verifySessionValue(readCookie(req, SESSION_COOKIE));
@@ -36,7 +44,7 @@ export async function GET(req: Request): Promise<Response> {
 
 export async function POST(req: Request): Promise<Response> {
   const auth = getAdminAuth();
-  if (!auth) return authError("not_configured");
+  if (!auth) return adminUnavailableError();
   if (!isSameOrigin(req)) return authError("forbidden");
 
   let idToken: unknown;
@@ -50,7 +58,12 @@ export async function POST(req: Request): Promise<Response> {
   let decoded;
   try {
     decoded = await auth.verifyIdToken(idToken, true);
-  } catch {
+  } catch (err) {
+    if (isCredentialError(err)) return logged("verify", err, authError("server_credentials_invalid"));
+    // Token issued for another Firebase project: the web config and the service account disagree.
+    if (/"aud" \(audience\) claim/.test(String((err as { message?: unknown })?.message ?? ""))) {
+      return logged("verify", err, authError("project_mismatch"));
+    }
     return authError("unauthenticated");
   }
   // Only a fresh sign-in may mint a long-lived session cookie (Firebase's recommendation), so
@@ -60,11 +73,12 @@ export async function POST(req: Request): Promise<Response> {
   let cookie: string;
   try {
     cookie = await auth.createSessionCookie(idToken, { expiresIn: SESSION_MAX_AGE_SECONDS * 1000 });
-    await ensureProfile(decoded.uid);
   } catch (err) {
-    console.error(`[auth] session creation failed (${(err as { code?: unknown })?.code ?? "unknown"})`);
-    return authError("unavailable");
+    return logged("session", err, authError(isCredentialError(err) ? "server_credentials_invalid" : "unavailable"));
   }
+  // The profile document is created lazily; if Firestore isn't reachable yet (e.g. the database
+  // hasn't been created in the console), signing in still works and it's retried next time.
+  await ensureProfile(decoded.uid).catch((err) => logged("profile", err, new Response()));
 
   const user = sessionUser({
     uid: decoded.uid,

@@ -103,3 +103,87 @@ test("DELETE /api/auth/session rejects cross-site requests and clears the cookie
   assert.equal(ok.status, 200);
   assert.match(ok.headers.get("set-cookie") ?? "", /algoverse_session=; .*Max-Age=0/);
 });
+
+// ---------------------------------------------------------------- configuration states
+
+const admin = await import("@/lib/firebase/admin");
+const config = await import("@/lib/firebase/config");
+const statusRoute = await import("@/app/api/auth/status/route");
+const { generateKeyPairSync } = await import("node:crypto");
+
+function withEnv(vars: Record<string, string | undefined>, fn: () => Promise<void> | void) {
+  return async () => {
+    const saved: Record<string, string | undefined> = {};
+    for (const [k, v] of Object.entries(vars)) {
+      saved[k] = process.env[k];
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    await admin.resetAdminForTests();
+    try {
+      await fn();
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+      await admin.resetAdminForTests();
+    }
+  };
+}
+
+const realKey = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+const account = (over: Record<string, string> = {}) =>
+  JSON.stringify({ type: "service_account", project_id: "algoverse-test", client_email: "svc@algoverse-test.iam.gserviceaccount.com", private_key: realKey, ...over });
+
+test("missing public config is reported by variable NAME", withEnv({ NEXT_PUBLIC_FIREBASE_API_KEY: "k", NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: undefined, NEXT_PUBLIC_FIREBASE_PROJECT_ID: "p", NEXT_PUBLIC_FIREBASE_APP_ID: undefined }, () => {
+  assert.deepEqual(config.missingPublicConfigVars(), ["NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN", "NEXT_PUBLIC_FIREBASE_APP_ID"]);
+  assert.equal(config.isFirebaseConfigured(), false);
+}));
+
+test("server credential states: missing vs invalid vs wrong project vs ok", async () => {
+  await withEnv({ FIREBASE_SERVICE_ACCOUNT_KEY: undefined }, () => assert.equal(admin.getAdminState(), "missing"))();
+  await withEnv({ FIREBASE_SERVICE_ACCOUNT_KEY: "not json at all" }, () => assert.equal(admin.getAdminState(), "invalid"))();
+  await withEnv({ FIREBASE_SERVICE_ACCOUNT_KEY: '{"project_id":"x"}' }, () => assert.equal(admin.getAdminState(), "invalid"))();
+  await withEnv(
+    { FIREBASE_SERVICE_ACCOUNT_KEY: account({ private_key: "-----BEGIN PRIVATE KEY-----\nbroken\n-----END PRIVATE KEY-----\n" }), NEXT_PUBLIC_FIREBASE_PROJECT_ID: undefined },
+    () => assert.equal(admin.getAdminState(), "invalid", "damaged private key")
+  )();
+  await withEnv({ FIREBASE_SERVICE_ACCOUNT_KEY: account(), NEXT_PUBLIC_FIREBASE_PROJECT_ID: "another-project" }, () =>
+    assert.equal(admin.getAdminState(), "project_mismatch")
+  )();
+  await withEnv({ FIREBASE_SERVICE_ACCOUNT_KEY: Buffer.from(account()).toString("base64"), NEXT_PUBLIC_FIREBASE_PROJECT_ID: "algoverse-test" }, () =>
+    assert.equal(admin.getAdminState(), "ok", "base64-encoded key accepted")
+  )();
+});
+
+test("protected APIs say WHY accounts are unavailable (missing vs invalid credentials)", async () => {
+  const origin = "http://localhost:3000";
+  const call = () => profileRoute.GET(new Request(`${origin}/api/account/profile`, { headers: { cookie: "algoverse_session=x" } }));
+  await withEnv({ FIREBASE_SERVICE_ACCOUNT_KEY: undefined }, async () => {
+    assert.equal(((await (await call()).json()) as { error: { code: string } }).error.code, "not_configured");
+  })();
+  await withEnv({ FIREBASE_SERVICE_ACCOUNT_KEY: "{broken" }, async () => {
+    const res = await call();
+    assert.equal(res.status, 503);
+    assert.equal(((await res.json()) as { error: { code: string } }).error.code, "server_credentials_invalid");
+  })();
+  await withEnv({ FIREBASE_SERVICE_ACCOUNT_KEY: account(), NEXT_PUBLIC_FIREBASE_PROJECT_ID: "another-project" }, async () => {
+    const res = await sessionRoute.POST(
+      new Request(`${origin}/api/auth/session`, { method: "POST", headers: { origin }, body: JSON.stringify({ idToken: "x".repeat(40) }) })
+    );
+    assert.equal(((await res.json()) as { error: { code: string } }).error.code, "project_mismatch");
+  })();
+});
+
+test("GET /api/auth/status reports state names only — never credential values", async () => {
+  await withEnv({ FIREBASE_SERVICE_ACCOUNT_KEY: account(), NEXT_PUBLIC_FIREBASE_PROJECT_ID: "another-project" }, async () => {
+    const res = await statusRoute.GET();
+    const text = await res.text();
+    assert.equal(JSON.parse(text).server, "project_mismatch");
+    assert.ok(!text.includes("PRIVATE KEY") && !text.includes("svc@") && !text.includes("algoverse-test"), "no secret material");
+  })();
+  await withEnv({ FIREBASE_SERVICE_ACCOUNT_KEY: undefined }, async () => {
+    assert.equal(((await (await statusRoute.GET()).json()) as { server: string }).server, "missing");
+  })();
+});

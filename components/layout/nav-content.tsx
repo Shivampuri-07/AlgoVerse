@@ -8,10 +8,9 @@ import { useAppStore } from "@/lib/store";
 import { getTopicProgress } from "@/lib/progress";
 import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
-import { isFirebaseConfigured } from "@/lib/firebase/config";
 
 const FOOTER_LINKS = [
-  ...(isFirebaseConfigured() ? [{ href: "/account", label: "Account", icon: UserRound }] : []),
+  { href: "/account", label: "Account", icon: UserRound },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

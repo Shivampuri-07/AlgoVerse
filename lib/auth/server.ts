@@ -10,7 +10,7 @@
  *     `verifyIdToken(..., checkRevoked = true)`. No ambient credentials, so no CSRF check.
  */
 import type { DecodedIdToken } from "firebase-admin/auth";
-import { getAdminAuth } from "@/lib/firebase/admin";
+import { getAdminAuth, getAdminState } from "@/lib/firebase/admin";
 import {
   AUTH_ERROR_MESSAGES,
   RECENT_SIGN_IN_SECONDS,
@@ -119,6 +119,8 @@ export function jsonResponse(body: unknown, status = 200, headers: Record<string
 
 const STATUS: Record<AuthErrorCode, number> = {
   not_configured: 503,
+  server_credentials_invalid: 503,
+  project_mismatch: 503,
   bad_request: 400,
   unauthenticated: 401,
   forbidden: 403,
@@ -130,6 +132,27 @@ export function authError(code: AuthErrorCode, headers: Record<string, string> =
   return jsonResponse({ error: { code, message: AUTH_ERROR_MESSAGES[code] } }, STATUS[code], headers);
 }
 
+/** The error to answer with when the Admin SDK isn't usable: missing vs invalid credentials. */
+export function adminUnavailableError(): Response {
+  const state = getAdminState();
+  if (state === "invalid") return authError("server_credentials_invalid");
+  if (state === "project_mismatch") return authError("project_mismatch");
+  return authError("not_configured");
+}
+
+/** Admin SDK errors that mean the server's own credentials are wrong (revoked/deleted key…). */
+export function isCredentialError(err: unknown): boolean {
+  const e = (err ?? {}) as { code?: unknown; message?: unknown };
+  const code = typeof e.code === "string" ? e.code : "";
+  const message = typeof e.message === "string" ? e.message : "";
+  return (
+    code === "app/invalid-credential" ||
+    code === "auth/invalid-credential" ||
+    code === "auth/insufficient-permission" ||
+    /invalid_grant|invalid JWT Signature|Failed to determine service account|credential implementation/i.test(message)
+  );
+}
+
 export type AuthResult = { ok: true; user: AuthUser } | { ok: false; response: Response };
 
 /**
@@ -138,7 +161,7 @@ export type AuthResult = { ok: true; user: AuthUser } | { ok: false; response: R
  *   if (!auth.ok) return auth.response;
  */
 export async function requireUser(req: Request, opts: { mutation?: boolean } = {}): Promise<AuthResult> {
-  if (!getAdminAuth()) return { ok: false, response: authError("not_configured") };
+  if (!getAdminAuth()) return { ok: false, response: adminUnavailableError() };
   const user = await getRequestUser(req);
   if (!user) return { ok: false, response: authError("unauthenticated") };
   if (opts.mutation && user.via === "cookie" && !isSameOrigin(req)) {

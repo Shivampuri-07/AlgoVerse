@@ -17,7 +17,8 @@
     "test:rules": "node --test scripts/tests/firestore-rules.test.mjs",
     "test:auth-emulator": "node --experimental-strip-types --no-warnings --import ./scripts/tests/register.mjs --test scripts/tests/auth-emulator.test.ts",
     "test:firebase": "npx -y firebase-tools@15.31.0 emulators:exec --only auth,firestore --project demo-algoverse \"npm run test:rules && npm run test:auth-emulator\"",
-    "check:secrets": "node scripts/check-bundle-secrets.mjs"
+    "check:secrets": "node scripts/check-bundle-secrets.mjs",
+    "test:e2e": "node scripts/tests/run-e2e.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.24.0",
@@ -57,6 +58,7 @@
     "autoprefixer": "^10.4.20",
     "eslint": "^8.57.0",
     "eslint-config-next": "^15.3.0",
+    "playwright-core": "^1.63.0",
     "postcss": "^8.4.41",
     "tailwindcss": "^3.4.10",
     "typescript": "^5.5.4"

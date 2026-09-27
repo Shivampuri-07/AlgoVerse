@@ -6,7 +6,7 @@ import { SESSION_COOKIE } from "@/lib/auth/shared";
 import { isAdminConfigured } from "@/lib/firebase/admin";
 import { getProfile } from "@/lib/account/profile";
 import { AccountView } from "@/components/account/account-view";
-import { AccountsUnavailable } from "@/components/account/auth-card";
+import { AccountSetupRequired } from "@/components/account/setup-notice";
 
 export const metadata: Metadata = { title: "Account", robots: { index: false } };
 export const dynamic = "force-dynamic";
@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
  * page (public/sw.js), so it can't be shown to the next person using the device.
  */
 export default async function AccountPage() {
-  if (!isAdminConfigured()) return <AccountsUnavailable />;
+  if (!isAdminConfigured()) return <AccountSetupRequired />;
 
   const user = await verifySessionValue((await cookies()).get(SESSION_COOKIE)?.value);
   if (!user) redirect("/login?next=/account");
