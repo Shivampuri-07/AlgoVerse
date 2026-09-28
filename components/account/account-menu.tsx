@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LogIn, LogOut, UserRound } from "lucide-react";
+import { CreditCard, LogIn, LogOut, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
@@ -87,6 +87,12 @@ export function AccountMenu() {
           <Link href="/account">
             <UserRound className="h-4 w-4" />
             Account
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/account/billing">
+            <CreditCard className="h-4 w-4" />
+            Plan &amp; billing
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={handleSignOut}>

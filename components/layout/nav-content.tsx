@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, ListChecks, Star, Settings, ChevronRight, UserRound } from "lucide-react";
+import { LayoutDashboard, ListChecks, Star, Settings, ChevronRight, UserRound, Sparkles } from "lucide-react";
 import { TOPIC_CATEGORIES } from "@/data/topics";
 import { useAppStore } from "@/lib/store";
 import { getTopicProgress } from "@/lib/progress";
@@ -11,6 +11,7 @@ import { Progress } from "@/components/ui/progress";
 
 const FOOTER_LINKS = [
   { href: "/account", label: "Account", icon: UserRound },
+  { href: "/pricing", label: "Plans", icon: Sparkles },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

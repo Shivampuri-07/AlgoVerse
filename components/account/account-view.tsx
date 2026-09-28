@@ -27,6 +27,9 @@ import { GOOGLE_PROVIDER_ID, PASSWORD_PROVIDER_ID } from "@/lib/auth/google";
 import { EmailVerificationCard } from "@/components/account/email-verification";
 import { GoogleMark } from "@/components/account/google-sign-in";
 import { SyncCard } from "@/components/sync/sync-status";
+import { useSyncSetup } from "@/components/sync/sync-provider";
+import { UpgradeButton } from "@/components/billing/upgrade-dialog";
+import { PLANS } from "@/lib/plans";
 
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
@@ -43,6 +46,7 @@ export function AccountView({
 }) {
   const { status, signOut, checkVerification, sendPasswordReset, setDisplayName, linkGoogle } = useAuth();
   const { config } = useFirebaseSetup();
+  const { entitlements } = useSyncSetup();
   const router = useRouter();
   const params = useSearchParams();
   const [profile, setProfile] = React.useState(initialProfile);
@@ -261,14 +265,24 @@ export function AccountView({
           <CardTitle className="flex items-center gap-2 text-base">
             <Sparkles className="h-4 w-4" /> Plan
           </CardTitle>
-          <CardDescription>You&apos;re on the Free plan.</CardDescription>
+          <CardDescription data-testid="account-plan">
+            You&apos;re on the {PLANS[entitlements?.plan ?? "free"].name} plan.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm text-muted-foreground">
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
           <p>
             Your progress, bookmarks and notes are saved on this device, exactly as before. Signing in or out
             doesn&apos;t change them.
           </p>
-          <p>AlgoVerse Pro (cross-device sync and more AI help) is coming soon.</p>
+          <div className="flex flex-wrap gap-2">
+            {entitlements?.plan !== "pro" && <UpgradeButton size="sm" />}
+            <Button asChild variant="outline" size="sm">
+              <Link href="/account/billing">Plan &amp; billing</Link>
+            </Button>
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/pricing">Compare plans</Link>
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

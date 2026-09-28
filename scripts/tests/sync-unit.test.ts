@@ -173,3 +173,25 @@ test("preference ops are validated and coalesced", () => {
   ]);
   assert.deepEqual(out, [{ t: "prefs", theme: "system", at: T + 1 }]);
 });
+
+// ---------------------------------------------------------------- plans (Phase 3)
+
+const plans = await import("@/lib/plans");
+
+test("plan config: comparison agrees with enforced features, price and honesty flags", () => {
+  const sync = plans.FEATURE_MATRIX.find((r) => r.id === "cloud-sync")!;
+  assert.equal(sync.free, plans.PLANS.free.features.cloudSync, "Free cloud sync matches enforcement");
+  assert.equal(sync.pro, plans.PLANS.pro.features.cloudSync, "Pro cloud sync matches enforcement");
+  assert.equal(sync.availability, "available");
+  assert.equal(plans.PRICING.proMonthly, 30, "owner decision: ₹30/month");
+  assert.equal(plans.formatPrice(30), "₹30");
+  assert.equal(plans.PRICING.paymentsEnabled, false, "no checkout before Phase 4");
+  assert.equal(plans.PRICING.approved, false, "feature list is a proposal until approved");
+  for (const r of plans.FEATURE_MATRIX) {
+    assert.ok(r.label && r.description, `${r.id} described`);
+    assert.ok(r.pro !== false, `${r.id}: Pro never has less than Free`);
+  }
+  const { available, planned } = plans.proBenefits();
+  assert.deepEqual(available.map((r) => r.id), ["cloud-sync"], "only built features are listed as available");
+  assert.ok(planned.every((r) => r.availability === "planned"));
+});

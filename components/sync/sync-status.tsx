@@ -6,6 +6,7 @@ import { useSyncSetup } from "@/components/sync/sync-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { UpgradeButton } from "@/components/billing/upgrade-dialog";
 import Link from "next/link";
 import { getProblemById } from "@/data/problems";
 import { syncNow, uploadDeviceNote, useSyncStore, type SyncStatus, type UnsyncedNote } from "@/lib/sync/engine";
@@ -119,9 +120,14 @@ export function SyncCard() {
         <CardDescription>
           {available
             ? "Keeps your progress, bookmarks, notes, streak and theme the same on every device you sign in on."
-            : "Keeps your progress the same on every device. Cloud sync is part of AlgoVerse Pro (coming soon) — your progress stays saved on this device either way."}
+            : "Keeps your progress the same on every device. Cloud sync is part of AlgoVerse Pro — your progress stays saved on this device either way."}
         </CardDescription>
       </CardHeader>
+      {!available && entitlements && (
+        <CardContent>
+          <UpgradeButton size="sm" variant="outline" reason="Cloud sync is part of AlgoVerse Pro." />
+        </CardContent>
+      )}
       {available && (
         <CardContent className="space-y-3 text-sm">
           {entitlements?.grantedBy === "preview" && (

@@ -954,3 +954,69 @@ test("sync: a note over 50,000 characters stays on the device, is listed, and do
   assert.match(await page.getByTestId("unsynced-notes").innerText(), /50,010 characters\): longer than the 50,000-character sync limit/);
   await context.close();
 });
+
+// ------------------------------------------------------------------ Phase 3: plans, upgrade, billing
+
+test("pricing: public page shows Free and Pro (₹30/month), marks planned features, and never offers a fake checkout", async () => {
+  const { context, page } = await newPage(CONFIGURED);
+  await page.goto("/pricing");
+  await page.getByRole("heading", { name: "Plans", exact: true }).waitFor();
+  assert.equal((await page.getByTestId("pro-price").innerText()).trim(), "₹30");
+  assert.match(await page.getByTestId("pricing-status").innerText(), /proposal.*Payments aren't available yet/s);
+  const table = await page.getByTestId("plan-comparison").innerText();
+  assert.match(table, /All 455 DSA problems/);
+  assert.match(table, /Cloud sync across devices/);
+  assert.match(table, /Advanced progress analytics\s*Planned/);
+  // Signed out: the dialog leads to a free account, with no payment button.
+  await page.getByRole("button", { name: "Upgrade to Pro" }).click();
+  await page.getByRole("dialog").waitFor();
+  assert.ok(await page.getByTestId("payments-unavailable").isVisible());
+  assert.ok(await page.getByRole("dialog").getByRole("link", { name: "Create a free account" }).isVisible());
+  assert.equal(await page.getByRole("button", { name: /Continue to payment/ }).count(), 0);
+  // Sidebar link on desktop.
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog").waitFor({ state: "detached" });
+  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "Plans" }).waitFor();
+  await context.close();
+});
+
+test("billing: requires sign-in; a Free account sees Free, no payments and an honest upgrade dialog", async () => {
+  const { context, page } = await newPage(CONFIGURED);
+  await page.goto("/account/billing");
+  await page.waitForURL((u) => u.pathname === "/login" && u.searchParams.get("next") === "/account/billing");
+  await signUpInUi(page, `billing-free-${Date.now()}@example.com`);
+  await page.getByTestId("account-plan").waitFor();
+  assert.match(await page.getByTestId("account-plan").innerText(), /Free plan/);
+  await page.goto("/account/billing");
+  assert.match(await page.getByTestId("current-plan").innerText(), /Free/);
+  assert.equal((await page.getByTestId("payment-history-empty").innerText()).trim(), "No payments.");
+  assert.match(await page.getByTestId("sample-payments").innerText(), /Sample only .* not real payments/i);
+  await page.getByRole("button", { name: "Upgrade to Pro" }).click();
+  const pay = page.getByRole("dialog").getByRole("button", { name: "Payments coming soon" });
+  assert.ok(await pay.isDisabled(), "no checkout before payments launch");
+  await context.close();
+});
+
+test("billing: a Pro account (server entitlement) sees Pro, its end date and 'Your plan' on pricing", async () => {
+  const { context, page } = await newPage(CONFIGURED);
+  await signUpInUi(page, `billing-pro-${Date.now()}@example.com`);
+  const { uid } = await profileOf(page);
+  const until = new Date(Date.now() + 30 * 86_400_000);
+  const res = await fetch(`${DB_HOST}/v1/projects/demo-algoverse/databases/(default)/documents/entitlements/${uid}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer owner" },
+    body: JSON.stringify({ fields: { plan: { stringValue: "pro" }, expiresAt: { timestampValue: until.toISOString() } } }),
+  });
+  assert.equal(res.status, 200);
+  await page.goto("/account/billing");
+  assert.match(await page.getByTestId("current-plan").innerText(), /Pro\s*Active/);
+  assert.match(await page.getByTestId("plan-until").innerText(), new RegExp(String(until.getFullYear())));
+  await page.goto("/pricing");
+  await page.getByText("Your plan").waitFor();
+  assert.ok(await page.getByRole("link", { name: "Manage plan" }).isVisible());
+  // A forged client-side flag can't change the server's answer.
+  await page.evaluate((u) => localStorage.setItem(`algoverse-entitlements:${u}`, JSON.stringify({ plan: "free" })), uid);
+  await page.goto("/account/billing");
+  assert.match(await page.getByTestId("current-plan").innerText(), /Pro/);
+  await context.close();
+});
