@@ -15,6 +15,14 @@ Nothing in this document is legal, tax or financial advice.
 | Paid infrastructure | **Declined for now** | Stays on Vercel Hobby and the Firebase Spark plan. **Vercel Hobby forbids commercial use, so this must be resolved before live payments** (section 10). |
 | Age | **Any age** | DPDP treats under-18s as children needing verifiable parental consent (obligations from 14 May 2027). Lawyer review needed before launch. |
 
+### Implementation status (2026-09-28)
+
+| Phase | Status |
+|---|---|
+| 1. Accounts | Done: email/password, verification (fixed-expiry escalating pause), Google Sign-In + linking, server sessions, account page. Tested on the emulators; Google linking confirmed by the owner on a Preview deployment. |
+| 2. Cloud sync (Pro) | Done: outbox + change journal, server merge with §5 conflict rules (Firestore transactions), first-login import dialog, other-account switch with local backup, status indicator + account card, sync-aware reset/import, two-device and offline browser tests (emulators). Not yet exercised on the real project. |
+| 3. Plans & entitlements | Started only where Phase 2 needs it: `lib/plans.ts`, `lib/entitlements.ts`, `GET /api/me/entitlements`. Pricing page, upgrade dialog and billing UI are still to do. |
+
 ### Firestore layout (replaces section 4 for implementation)
 
 ```
@@ -22,6 +30,8 @@ users/{uid}                          displayName, createdAt, updatedAt          
 users/{uid}/progress/{problemId}     (Phase 2, Pro)                              client: owner read only
 users/{uid}/bookmarks/{problemId}    (Phase 2, Pro)                              client: owner read only
 users/{uid}/notes/{problemId_kind}   (Phase 2, Pro)                              client: owner read only
+users/{uid}/meta/state               longest streak + legacy (Phase 2, Pro)     client: owner read only
+entitlements/{uid}                   { plan, expiresAt, source } (Pro)          server only
 subscriptions/{id}, payments/{id}, aiUsage/{uid_period}, webhookEvents/{id}   server only
 ```
 All writes go through Next.js route handlers (Admin SDK) after `requireUser()`. Clients have

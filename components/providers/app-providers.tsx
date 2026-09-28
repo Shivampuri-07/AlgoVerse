@@ -4,6 +4,7 @@ import * as React from "react";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { AuthProvider } from "@/components/providers/auth-provider";
+import { SyncProvider } from "@/components/sync/sync-provider";
 import { FirebaseConfigProvider, type FirebaseSetup } from "@/components/providers/firebase-config-provider";
 import { StoreHydration } from "@/components/providers/store-hydration";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -26,12 +27,14 @@ export function AppProviders({
       <FirebaseConfigProvider value={firebase}>
         <AuthProvider>
           <TooltipProvider delayDuration={200}>
-            <StoreHydration />
-            <KeyboardShortcutsListener />
-            <PwaManager />
-            {children}
-            <InstallPrompt />
-            <Toaster position="bottom-right" richColors closeButton />
+            <SyncProvider>
+              <StoreHydration />
+              <KeyboardShortcutsListener />
+              <PwaManager />
+              {children}
+              <InstallPrompt />
+              <Toaster position="bottom-right" richColors closeButton />
+            </SyncProvider>
           </TooltipProvider>
         </AuthProvider>
       </FirebaseConfigProvider>

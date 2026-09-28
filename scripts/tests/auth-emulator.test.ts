@@ -199,3 +199,140 @@ test("a disabled account's session is rejected", async () => {
   await getAdminAuth()!.updateUser(uid, { disabled: true });
   assert.equal((await getProfile(cookie)).status, 401);
 });
+
+// ---------------------------------------------------------------- cloud sync API (Pro)
+
+const syncRoute = await import("@/app/api/sync/route");
+const entRoute = await import("@/app/api/me/entitlements/route");
+const { Timestamp } = await import("firebase-admin/firestore");
+
+async function newSession(email: string) {
+  const { uid, idToken } = await signUp(email);
+  return { uid, cookie: cookieFrom(await login(idToken)) };
+}
+const grantPro = (uid: string, expiresAt?: number) =>
+  getAdminDb()!.doc(`entitlements/${uid}`).set({ plan: "pro", ...(expiresAt ? { expiresAt: Timestamp.fromMillis(expiresAt) } : {}) });
+const pull = async (cookie: string, since = 0) =>
+  syncRoute.GET(new Request(`${ORIGIN}/api/sync?since=${since}`, { headers: { cookie } }));
+const push = async (cookie: string, ops: unknown[], origin = ORIGIN) =>
+  syncRoute.POST(new Request(`${ORIGIN}/api/sync`, { method: "POST", headers: { "Content-Type": "application/json", cookie, origin }, body: JSON.stringify({ ops }) }));
+const T0 = Date.now();
+
+test("sync: free users are refused (server-side entitlement), and entitlements report Free", async () => {
+  const a = await newSession(`free-${Date.now()}@example.com`);
+  const ent = await (await entRoute.GET(new Request(`${ORIGIN}/api/me/entitlements`, { headers: { cookie: a.cookie } }))).json();
+  assert.equal(ent.plan, "free");
+  assert.equal(ent.features.cloudSync, false);
+  const p = await pull(a.cookie);
+  assert.equal(p.status, 403);
+  assert.equal((await p.json()).error.code, "not_entitled");
+  assert.equal((await push(a.cookie, [{ t: "bookmark", id: 1, on: true, at: T0 }])).status, 403);
+  assert.equal((await getAdminDb()!.collection(`users/${a.uid}/bookmarks`).get()).size, 0, "nothing written");
+  assert.equal((await pull("")).status, 401, "signed-out → 401");
+});
+
+test("sync: Pro user pushes and pulls; an expired Pro is refused", async () => {
+  const a = await newSession(`pro-${Date.now()}@example.com`);
+  await grantPro(a.uid);
+  const ops = [
+    { t: "progress", id: 12, completedAt: "2026-09-01T10:00:00.000Z", at: T0 },
+    { t: "bookmark", id: 12, on: true, at: T0 },
+    { t: "note", id: 12, kind: "note", content: "hash map", base: 0, at: T0 },
+    { t: "streak", longest: 3, at: T0 },
+  ];
+  const res = await push(a.cookie, ops);
+  assert.equal(res.status, 200);
+  const pushed = await res.json();
+  assert.equal(pushed.notes[0].version, 1);
+  const all = await (await pull(a.cookie, 0)).json();
+  assert.deepEqual(all.progress.map((p: { id: number; completedAt: string }) => [p.id, p.completedAt]), [[12, "2026-09-01T10:00:00.000Z"]]);
+  assert.deepEqual(all.bookmarks.map((b: { id: number; on: boolean }) => [b.id, b.on]), [[12, true]]);
+  assert.equal(all.notes[0].content, "hash map");
+  assert.equal(all.meta.longestStreak, 3);
+  assert.ok(all.cursor > 0);
+
+  await grantPro(a.uid, Date.now() - 1000);
+  assert.equal((await pull(a.cookie)).status, 403, "expired Pro loses sync");
+});
+
+test("sync: user A can never read or write user B's data (uid comes from the session)", async () => {
+  const a = await newSession(`iso-a-${Date.now()}@example.com`);
+  const b = await newSession(`iso-b-${Date.now()}@example.com`);
+  await grantPro(a.uid);
+  await grantPro(b.uid);
+  await push(a.cookie, [{ t: "note", id: 5, kind: "note", content: "A's private note", base: 0, at: T0 }]);
+  // B tries to smuggle A's uid in the body and query string.
+  const res = await syncRoute.POST(
+    new Request(`${ORIGIN}/api/sync?uid=${a.uid}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", cookie: b.cookie, origin: ORIGIN },
+      body: JSON.stringify({ uid: a.uid, ops: [{ t: "note", id: 5, kind: "note", content: "B overwrote", base: 1, at: T0 + 5 }] }),
+    })
+  );
+  assert.equal(res.status, 200);
+  const aDoc = await getAdminDb()!.doc(`users/${a.uid}/notes/5_note`).get();
+  assert.equal(aDoc.data()?.content, "A's private note", "A's note untouched");
+  const bView = await (await pull(b.cookie, 0)).json();
+  assert.equal(bView.notes.length, 1);
+  assert.equal(bView.notes[0].content, "B overwrote", "B only ever sees B's own data");
+  assert.ok(!JSON.stringify(bView).includes("A's private note"));
+});
+
+test("sync: cross-site POST is blocked; malformed ops are rejected whole", async () => {
+  const a = await newSession(`csrf-${Date.now()}@example.com`);
+  await grantPro(a.uid);
+  assert.equal((await push(a.cookie, [{ t: "bookmark", id: 1, on: true, at: T0 }], "https://evil.example")).status, 403);
+  assert.equal((await push(a.cookie, [{ t: "bookmark", id: 1, on: true, at: T0 }, { t: "evil" }])).status, 400);
+  assert.equal((await getAdminDb()!.collection(`users/${a.uid}/bookmarks`).get()).size, 0);
+});
+
+test("sync: importing the same device twice changes nothing the second time (idempotent)", async () => {
+  const a = await newSession(`idem-${Date.now()}@example.com`);
+  await grantPro(a.uid);
+  const importOps = [
+    { t: "progress", id: 1, completedAt: "2026-09-01T00:00:00.000Z", at: Date.parse("2026-09-01T00:00:00.000Z") },
+    { t: "progress", id: 2, completedAt: "2026-09-02T00:00:00.000Z", at: Date.parse("2026-09-02T00:00:00.000Z") },
+    { t: "bookmark", id: 2, on: true, at: T0 },
+    { t: "note", id: 2, kind: "mistakes", content: "off by one", base: 0, at: T0 },
+  ];
+  await push(a.cookie, importOps);
+  const first = await (await pull(a.cookie, 0)).json();
+  await push(a.cookie, importOps);
+  const second = await (await pull(a.cookie, 0)).json();
+  const strip = (x: { progress: unknown[]; bookmarks: unknown[]; notes: unknown[] }) => JSON.stringify([x.progress, x.bookmarks, x.notes]);
+  assert.equal(strip(second), strip(first));
+  assert.equal(second.notes[0].version, 1, "no duplicate note version");
+});
+
+test("sync: two devices edit the same note — both texts are kept; an old un-complete doesn't undo a newer completion", async () => {
+  const a = await newSession(`conf-${Date.now()}@example.com`);
+  await grantPro(a.uid);
+  await push(a.cookie, [{ t: "note", id: 9, kind: "note", content: "start", base: 0, at: T0 }]);
+  await push(a.cookie, [{ t: "note", id: 9, kind: "note", content: "laptop edit", base: 1, at: T0 + 10 }]);
+  const res = await (await push(a.cookie, [{ t: "note", id: 9, kind: "note", content: "phone edit", base: 1, at: T0 + 20 }])).json();
+  assert.deepEqual(res.conflicts, [{ id: 9, kind: "note" }]);
+  assert.match(res.notes[0].content, /^phone edit[\s\S]*Conflicting copy[\s\S]*laptop edit$/);
+
+  await push(a.cookie, [{ t: "progress", id: 3, completedAt: "2026-09-05T00:00:00.000Z", at: T0 + 100 }]);
+  await push(a.cookie, [{ t: "progress", id: 3, completedAt: null, at: T0 + 50 }]);
+  const doc = (await getAdminDb()!.doc(`users/${a.uid}/progress/3`).get()).data();
+  assert.equal(doc?.deleted, false, "stale un-complete ignored");
+});
+
+test("sync: pulls are incremental (cursor) and include later changes", async () => {
+  const a = await newSession(`cursor-${Date.now()}@example.com`);
+  await grantPro(a.uid);
+  await push(a.cookie, [{ t: "bookmark", id: 1, on: true, at: T0 }]);
+  await new Promise((r) => setTimeout(r, 6_000)); // older than the 5 s overlap window
+  const first = await (await pull(a.cookie, 0)).json();
+  assert.deepEqual(first.bookmarks.map((b: { id: number }) => b.id), [1]);
+  await push(a.cookie, [{ t: "bookmark", id: 2, on: true, at: T0 + 1 }]);
+  const next = await (await pull(a.cookie, first.cursor)).json();
+  assert.deepEqual(next.bookmarks.map((b: { id: number }) => b.id), [2], "only the newer change");
+  assert.ok(next.cursor >= first.cursor);
+  await new Promise((r) => setTimeout(r, 6_000));
+  const quiet = await (await pull(a.cookie, next.cursor)).json();
+  await new Promise((r) => setTimeout(r, 100));
+  const quieter = await (await pull(a.cookie, quiet.cursor)).json();
+  assert.equal(quieter.bookmarks.length + quieter.progress.length + quieter.notes.length, 0, "a quiet account returns nothing (no endless repeats)");
+});

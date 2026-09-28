@@ -47,6 +47,21 @@ interface AppState {
   /** Returns how many items were migrated from an old-format file (0 for current files). */
   importProgress: (data: ProgressExport) => { migrated: number; keptAsLegacy: number };
   setHydrated: (value: boolean) => void;
+  /**
+   * Cloud sync (lib/sync/engine.ts): applies merged cloud state. Only the given fields change;
+   * the streak is recomputed from completions, keeping the larger longest streak.
+   */
+  applySync: (patch: SyncPatch) => void;
+}
+
+export interface SyncPatch {
+  completed?: CompletedMap;
+  bookmarked?: number[];
+  notes?: Record<number, string>;
+  mistakes?: Record<number, string>;
+  code?: Record<number, string>;
+  legacy?: LegacyProgress;
+  longestStreak?: number;
 }
 
 function streakFrom(completed: CompletedMap, legacy: LegacyProgress, previous: StreakState): StreakState {
@@ -201,6 +216,23 @@ export const useAppStore = create<AppState>()(
       },
 
       setHydrated: (value) => set({ hydrated: value }),
+
+      applySync: (patch) => {
+        set((state) => {
+          const completed = patch.completed ?? state.completed;
+          const legacy = patch.legacy ?? state.legacy;
+          const previous = { ...state.streak, longest: Math.max(state.streak.longest ?? 0, patch.longestStreak ?? 0) };
+          return {
+            completed,
+            bookmarked: patch.bookmarked ?? state.bookmarked,
+            notes: patch.notes ?? state.notes,
+            mistakes: patch.mistakes ?? state.mistakes,
+            code: patch.code ?? state.code,
+            legacy,
+            streak: streakFrom(completed, legacy, previous),
+          };
+        });
+      },
     }),
     {
       name: STORAGE_KEY,

@@ -767,3 +767,202 @@ test("unauthorised hostname: explained up front with the exact host (same check 
   assert.equal(await ok.getByText(/unauthorized-domain/).count(), 0, "no false alarm on an authorised host");
   await context.close();
 });
+
+// ------------------------------------------------------------------ cloud sync (Pro), two devices
+
+const DB_HOST = `http://${process.env.FIRESTORE_EMULATOR_HOST ?? "127.0.0.1:8080"}`;
+
+async function grantProInEmulator(uid) {
+  const res = await fetch(`${DB_HOST}/v1/projects/demo-algoverse/databases/(default)/documents/entitlements/${uid}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer owner" },
+    body: JSON.stringify({ fields: { plan: { stringValue: "pro" } } }),
+  });
+  assert.equal(res.status, 200, "emulator: entitlement written");
+}
+
+const profileOf = (page) => page.evaluate(async () => (await (await fetch("/api/account/profile")).json()).profile);
+const storeOf = (page) => page.evaluate((k) => JSON.parse(localStorage.getItem(k) ?? "null")?.state ?? null, STORAGE_KEY);
+const cloudOf = (page) => page.evaluate(async () => (await fetch("/api/sync?since=0")).json());
+
+/** Polls the account's cloud data (server API) until `check(cloud)` is true. */
+async function waitCloud(page, check, what) {
+  for (let i = 0; i < 40; i++) {
+    const cloud = await cloudOf(page);
+    if (check(cloud)) return cloud;
+    await page.waitForTimeout(500);
+  }
+  throw new Error(`cloud never showed: ${what}`);
+}
+
+async function waitSynced(page) {
+  await page.locator('[data-testid="sync-indicator"][data-status="synced"]').waitFor({ timeout: 20_000 });
+}
+
+async function logInInUi(page, email, password = "letters123") {
+  await page.goto("/login");
+  await page.waitForFunction(() => !document.querySelector('button[type="submit"]')?.disabled);
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "Log in" }).click();
+  await page.waitForURL("**/account");
+}
+
+test("sync: free accounts don't sync — no indicator, no prompt, local progress untouched", async () => {
+  const { context, page } = await newPage(CONFIGURED);
+  await page.goto("/");
+  await page.evaluate(([k, v]) => localStorage.setItem(k, v), [STORAGE_KEY, SEEDED_PROGRESS]);
+  const before = await readProgress(page);
+  await signUpInUi(page, `sync-free-${Date.now()}@example.com`);
+  await page.getByText(/Cloud sync is part of AlgoVerse Pro/).waitFor();
+  await page.waitForTimeout(1500);
+  assert.equal(await page.getByTestId("sync-indicator").count(), 0);
+  assert.equal(await page.getByText("Sync this device's progress to your account?").count(), 0);
+  assert.equal((await page.evaluate(async () => (await fetch("/api/sync")).status)), 403);
+  assert.equal(await readProgress(page), before);
+  await context.close();
+});
+
+test("sync: Pro — progress and notes made on one device appear on the other, both ways", async () => {
+  const email = `sync-two-${Date.now()}@example.com`;
+  const laptop = await newPage(CONFIGURED);
+  await signUpInUi(laptop.page, email);
+  const { uid } = await profileOf(laptop.page);
+  await grantProInEmulator(uid);
+  await laptop.page.reload(); // entitlements are read on load
+  await waitSynced(laptop.page); // empty device: sync starts without asking
+
+  // Laptop: complete problem 1 and write a note on problem 2 through the real UI.
+  await laptop.page.goto("/problems/1");
+  await laptop.page.getByRole("button", { name: "Mark Completed" }).click();
+  await laptop.page.goto("/problems/2");
+  await laptop.page.locator("#notes").fill("laptop note: sliding window");
+  await waitCloud(
+    laptop.page,
+    (c) => c.progress.some((p) => p.id === 1 && !p.deleted) && c.notes.some((n) => n.id === 2 && n.content === "laptop note: sliding window"),
+    "laptop completion + note"
+  );
+
+  // Phone: a fresh device signs in and gets everything.
+  const phone = await newPage(CONFIGURED, { width: 390, height: 844 });
+  await logInInUi(phone.page, email);
+  await waitSynced(phone.page);
+  await phone.page.waitForFunction((k) => {
+    const s = JSON.parse(localStorage.getItem(k) ?? "null")?.state;
+    return s && s.completed["1"] && s.notes["2"] === "laptop note: sliding window";
+  }, STORAGE_KEY);
+
+  // Phone bookmarks problem 3 → laptop receives it on the next sync (tab focus).
+  await phone.page.goto("/problems/3");
+  await phone.page.getByRole("button", { name: /bookmark/i }).first().click();
+  await waitCloud(phone.page, (c) => c.bookmarks.some((b) => b.id === 3 && b.on), "phone bookmark");
+  await laptop.page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await laptop.page.waitForFunction((k) => (JSON.parse(localStorage.getItem(k) ?? "null")?.state?.bookmarked ?? []).includes(3), STORAGE_KEY, { timeout: 20_000 });
+  await laptop.context.close();
+  await phone.context.close();
+});
+
+test("sync: first login with local data asks first; 'Import and merge' uploads it without deleting anything", async () => {
+  const email = `sync-import-${Date.now()}@example.com`;
+  const { context, page } = await newPage(CONFIGURED);
+  await page.goto("/");
+  await page.evaluate(([k, v]) => localStorage.setItem(k, v), [STORAGE_KEY, SEEDED_PROGRESS]);
+  const before = await readProgress(page);
+  await signUpInUi(page, email);
+  await grantProInEmulator((await profileOf(page)).uid);
+  await page.reload();
+  await page.getByText("Sync this device's progress to your account?").waitFor();
+  assert.match(await page.getByRole("dialog").innerText(), /2 completed problems, 1 bookmark/);
+  await page.getByRole("button", { name: "Import and merge" }).click();
+  await waitSynced(page);
+  const cloud = await cloudOf(page);
+  assert.deepEqual(cloud.progress.filter((p) => !p.deleted).map((p) => p.id).sort(), [1, 5]);
+  assert.equal(cloud.progress.find((p) => p.id === 1).completedAt, "2026-09-20T10:00:00.000Z", "original completion date kept");
+  assert.deepEqual(cloud.bookmarks.filter((b) => b.on).map((b) => b.id), [7]);
+  assert.ok(cloud.notes.some((n) => n.id === 1 && n.content === "my local note"));
+  const after = JSON.parse(await readProgress(page)).state;
+  const was = JSON.parse(before).state;
+  assert.deepEqual([after.completed, after.bookmarked, after.notes], [was.completed, was.bookmarked, was.notes], "local data unchanged");
+  await page.reload();
+  await waitSynced(page);
+  assert.equal(await page.getByText("Sync this device's progress to your account?").count(), 0, "not asked again");
+  await context.close();
+});
+
+test("sync: 'Keep on this device only' keeps sync off here, and it can be turned on later", async () => {
+  const { context, page } = await newPage(CONFIGURED);
+  await page.goto("/");
+  await page.evaluate(([k, v]) => localStorage.setItem(k, v), [STORAGE_KEY, SEEDED_PROGRESS]);
+  await signUpInUi(page, `sync-keep-${Date.now()}@example.com`);
+  await grantProInEmulator((await profileOf(page)).uid);
+  await page.reload();
+  await page.getByRole("button", { name: "Keep on this device only" }).click();
+  await page.goto("/account");
+  await page.getByText(/Sync is off on this device/).waitFor();
+  assert.equal(await page.getByTestId("sync-indicator").count(), 0);
+  const cloud = await cloudOf(page);
+  assert.equal(cloud.progress.length + cloud.bookmarks.length + cloud.notes.length, 0, "nothing uploaded");
+  await page.getByRole("button", { name: "Set up sync on this device" }).click();
+  await page.getByRole("button", { name: "Import and merge" }).click();
+  await waitSynced(page);
+  assert.equal((await cloudOf(page)).progress.length, 2);
+  await context.close();
+});
+
+test("sync: offline changes are kept and uploaded when the connection returns", async () => {
+  const email = `sync-offline-${Date.now()}@example.com`;
+  const { context, page } = await newPage(CONFIGURED);
+  await signUpInUi(page, email);
+  await grantProInEmulator((await profileOf(page)).uid);
+  await page.reload();
+  await waitSynced(page);
+  await page.goto("/problems/4");
+  await page.getByRole("button", { name: "Mark Completed" }).waitFor();
+  await waitSynced(page); // sync running on this page
+  await context.setOffline(true);
+  await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+  await page.getByRole("button", { name: "Mark Completed" }).click();
+  await page.waitForTimeout(3000);
+  await page.locator('[data-testid="sync-indicator"][data-status="offline"]').waitFor();
+  assert.ok((await storeOf(page)).completed["4"], "saved on the device while offline");
+  await context.setOffline(false);
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await waitCloud(page, (c) => c.progress.some((p) => p.id === 4 && !p.deleted), "uploaded after reconnecting");
+  await context.close();
+});
+
+test("sync: a device holding another account's data asks before touching it, and backs it up before switching", async () => {
+  const a = `sync-owner-a-${Date.now()}@example.com`;
+  const b = `sync-owner-b-${Date.now()}@example.com`;
+  const { context, page } = await newPage(CONFIGURED);
+  // Account A (Pro) syncs a completion from this device.
+  await signUpInUi(page, a);
+  await grantProInEmulator((await profileOf(page)).uid);
+  await page.reload();
+  await waitSynced(page);
+  await page.goto("/problems/6");
+  await page.getByRole("button", { name: "Mark Completed" }).click();
+  await waitCloud(page, (c) => c.progress.some((p) => p.id === 6 && !p.deleted), "A's completion");
+  await page.getByRole("button", { name: /Account menu/ }).click();
+  await page.getByRole("menuitem", { name: "Log out" }).click();
+  await page.locator("header").getByRole("link", { name: "Log in" }).waitFor();
+  assert.ok((await storeOf(page)).completed["6"], "logging out keeps the device's progress");
+
+  // Account B (Pro) signs in on the same device.
+  await signUpInUi(page, b);
+  await grantProInEmulator((await profileOf(page)).uid);
+  await page.reload();
+  await page.getByText("This device has progress from another account").waitFor();
+  await page.getByRole("button", { name: "Use this account's cloud data" }).click();
+  await waitSynced(page);
+  const store = await storeOf(page);
+  assert.equal(store.completed["6"], undefined, "B sees only B's (empty) cloud data");
+  const backup = await page.evaluate(() => {
+    const k = Object.keys(localStorage).find((x) => x.startsWith("algoverse-local-backup:"));
+    return k ? JSON.parse(localStorage.getItem(k)) : null;
+  });
+  assert.ok(backup && JSON.parse(backup.store).state.completed["6"], "A's device data was backed up first");
+  const cloudB = await cloudOf(page);
+  assert.equal(cloudB.progress.length, 0, "A's progress was not merged into B");
+  await context.close();
+});

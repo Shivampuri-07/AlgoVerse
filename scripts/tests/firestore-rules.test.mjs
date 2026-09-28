@@ -32,6 +32,8 @@ beforeEach(async () => {
     await db.doc("users/bob/notes/12_note").set({ content: "bob's private note" });
     await db.doc("subscriptions/sub_alice").set({ uid: "alice", status: "active" });
     await db.doc("aiUsage/alice_2026-09-27").set({ uid: "alice", requests: 1 });
+    await db.doc("entitlements/alice").set({ plan: "pro" });
+    await db.doc("users/alice/meta/state").set({ longestStreak: 3 });
   });
 });
 
@@ -80,4 +82,17 @@ test("subscriptions and AI usage are server-only: no client reads or writes, eve
   await assertFails(alice().doc("aiUsage/alice_2026-09-27").set({ uid: "alice", requests: 0 }));
   await assertFails(alice().doc("aiUsage/alice_2026-09-27").get());
   await assertFails(alice().doc("webhookEvents/evt_1").set({}));
+});
+
+test("entitlements are server-only: a user can't read or grant their own plan", async () => {
+  await assertFails(alice().doc("entitlements/alice").get());
+  await assertFails(alice().doc("entitlements/alice").set({ plan: "pro" }));
+  await assertFails(alice().doc("entitlements/bob").set({ plan: "pro" }));
+});
+
+test("synced data: owner may read their own sync docs, never write them directly", async () => {
+  await assertSucceeds(alice().doc("users/alice/meta/state").get());
+  await assertFails(alice().doc("users/alice/meta/state").set({ longestStreak: 999 }));
+  await assertFails(alice().doc("users/alice/bookmarks/1").set({ on: true, at: 1 }));
+  await assertFails(alice().doc("users/bob/meta/state").get());
 });

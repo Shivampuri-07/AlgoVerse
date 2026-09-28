@@ -26,6 +26,7 @@ import { DISPLAY_NAME_MAX_LENGTH, normalizeDisplayName, type AccountProfile } fr
 import { GOOGLE_PROVIDER_ID, PASSWORD_PROVIDER_ID } from "@/lib/auth/google";
 import { EmailVerificationCard } from "@/components/account/email-verification";
 import { GoogleMark } from "@/components/account/google-sign-in";
+import { SyncCard } from "@/components/sync/sync-status";
 
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
@@ -275,6 +276,8 @@ export function AccountView({
           <p>AlgoVerse Pro (cross-device sync and more AI help) is coming soon.</p>
         </CardContent>
       </Card>
+
+      <SyncCard />
 
       <Card>
         <CardHeader>

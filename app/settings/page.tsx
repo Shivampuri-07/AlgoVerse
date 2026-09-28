@@ -4,6 +4,7 @@ import * as React from "react";
 import { Download, Upload, Trash2, KeyRound, Info } from "lucide-react";
 import { toast } from "sonner";
 import { useAppStore } from "@/lib/store";
+import { useSyncStore } from "@/lib/sync/engine";
 import { PROBLEMS } from "@/data/problems";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -54,6 +55,7 @@ export default function SettingsPage() {
   const legacyItems = legacyEntries(legacy);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [resetOpen, setResetOpen] = React.useState(false);
+  const syncing = useSyncStore((s) => s.status !== "off");
 
   function handleExport() {
     const data = exportProgress();
@@ -78,6 +80,13 @@ export default function SettingsPage() {
     e.target.value = "";
     if (!file) return;
 
+    if (
+      syncing &&
+      !window.confirm(
+        "Cloud sync is on. Importing replaces the progress on this device, and the changes (including removals) sync to your account and your other devices. Continue?"
+      )
+    )
+      return;
     const reader = new FileReader();
     reader.onload = () => {
       try {
@@ -131,8 +140,9 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle className="text-base">Data Management</CardTitle>
           <CardDescription>
-            Your progress lives only in this browser&apos;s local storage. Export it regularly to keep a backup,
-            or move it to another device.
+            {syncing
+              ? "Your progress is saved in this browser and synced to your account. You can still export a backup file."
+              : "Your progress lives only in this browser's local storage. Export it regularly to keep a backup, or move it to another device."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -230,6 +240,7 @@ export default function SettingsPage() {
             <DialogTitle>Reset all progress?</DialogTitle>
             <DialogDescription>
               This permanently clears your completed problems, bookmarks, notes and streak from this browser.
+              {syncing && " Cloud sync is on, so they are also cleared from your account and your other synced devices."}{" "}
               This can&apos;t be undone — export a backup first if you want to keep it.
             </DialogDescription>
           </DialogHeader>

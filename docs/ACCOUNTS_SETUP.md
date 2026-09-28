@@ -182,6 +182,28 @@ Templates → Email address verification and Authentication → Usage. The Spark
 1,000 verification emails a day. If a single request after a long pause is still refused,
 open a Firebase support case with its time.
 
+## Cloud sync (Pro)
+
+Sync is a Pro feature, enforced by the server (`/api/sync` checks the server-only
+`entitlements/{uid}` document; the browser can't grant itself anything). To try it before
+payments exist, use one of these:
+
+- **One account (works anywhere):** run locally, with `FIREBASE_SERVICE_ACCOUNT_KEY` in `.env.local`:
+  `node scripts/grant-pro.mjs --email you@example.com --days 30`
+  (`--revoke` undoes it). It writes only `entitlements/{uid}`.
+- **Everyone on Preview:** add `CLOUD_SYNC_PREVIEW_OPEN=1` to the Vercel **Preview** environment
+  and redeploy. It's ignored on Production (`VERCEL_ENV=production`).
+
+What users see:
+- **Pro, device with no progress:** sync starts by itself.
+- **Pro, device with local progress:** "Import and merge" / "Keep on this device only" /
+  "Decide later". An import only adds data and is safe to repeat.
+- **Device holding another account's data:** "Use this account's cloud data" (the device data is
+  backed up first under `algoverse-local-backup:<time>`), "Merge this device into this account",
+  or "Not now".
+- **Status:** a cloud icon in the top bar, and Account → Cloud sync with "Sync now".
+- **Signing out:** stops syncing. It never deletes local progress.
+
 ## Local development without touching the real project
 ```bash
 npx -y firebase-tools@15.31.0 emulators:start --only auth,firestore --project demo-algoverse
