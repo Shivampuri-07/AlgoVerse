@@ -26,8 +26,36 @@ export function malformedDomainEntries(domains: string[]): string[] {
 }
 
 export interface ProjectConfig {
+  /**
+   * What the endpoint calls "projectId" — in practice the NUMERIC project number (e.g.
+   * "123456789012"), not the project ID string. The Firebase SDK itself only reads
+   * authorizedDomains from this response.
+   */
   projectId: string | null;
   authorizedDomains: string[];
+}
+
+/** The project number embedded in a Firebase web App ID ("1:<project number>:web:<hash>"). */
+export function projectNumberFromAppId(appId: string | null | undefined): string | null {
+  const m = /^\d+:(\d+):[a-z]+:\w+$/i.exec(appId?.trim() ?? "");
+  return m ? m[1] : null;
+}
+
+/**
+ * Does the project that owns the API key match the app's configuration? Compares like with like:
+ * a numeric project number against the App ID's project number, a project ID against the
+ * configured project ID. Returns null when it can't tell (never a guess).
+ */
+export function keyMatchesConfiguredProject(
+  keyProject: string | null,
+  configured: { projectId: string | null; appId: string | null }
+): boolean | null {
+  if (!keyProject) return null;
+  if (/^\d+$/.test(keyProject)) {
+    const number = projectNumberFromAppId(configured.appId);
+    return number ? number === keyProject : null;
+  }
+  return configured.projectId ? configured.projectId === keyProject : null;
 }
 
 /** Fetches the authorised domains of the project that owns `apiKey` (public endpoint). */
@@ -67,6 +95,10 @@ export interface DomainDiagnosis {
   keyProjectId: string | null;
   /** Project the app is configured for (NEXT_PUBLIC_FIREBASE_PROJECT_ID). */
   configuredProjectId: string | null;
+  /** Project number from NEXT_PUBLIC_FIREBASE_APP_ID, when it has the standard format. */
+  configuredProjectNumber: string | null;
+  /** true/false when the key's project could be compared with the configuration, null when not. */
+  keyMatchesProject: boolean | null;
   authorizedDomains: string[];
   malformedEntries: string[];
   /** A stable URL for this branch (e.g. Vercel's branch URL) that IS authorised, if any. */
@@ -77,6 +109,8 @@ export async function diagnoseUnauthorizedDomain(input: {
   hostname: string;
   apiKey: string;
   configuredProjectId: string | null;
+  /** NEXT_PUBLIC_FIREBASE_APP_ID (public) — used to compare project numbers. */
+  configuredAppId?: string | null;
   /** Candidate stable hosts for this deployment, e.g. Vercel's branch URL host. */
   alternativeHosts?: string[];
   fetchImpl?: typeof fetch;
@@ -84,6 +118,8 @@ export async function diagnoseUnauthorizedDomain(input: {
   const base = {
     hostname: input.hostname,
     configuredProjectId: input.configuredProjectId,
+    configuredProjectNumber: projectNumberFromAppId(input.configuredAppId),
+    keyMatchesProject: null as boolean | null,
     keyProjectId: null as string | null,
     authorizedDomains: [] as string[],
     malformedEntries: [] as string[],
@@ -96,26 +132,40 @@ export async function diagnoseUnauthorizedDomain(input: {
     (input.alternativeHosts ?? []).find(
       (h) => h && h !== input.hostname && domains.some((d) => hostMatchesAuthorizedDomain(h, d))
     ) ?? null;
+  const keyMatchesProject = keyMatchesConfiguredProject(config.projectId, {
+    projectId: input.configuredProjectId,
+    appId: input.configuredAppId ?? null,
+  });
   const diagnosis = {
     ...base,
+    keyMatchesProject,
     keyProjectId: config.projectId,
     authorizedDomains: domains,
     malformedEntries: malformedDomainEntries(domains),
     authorizedAlternativeUrl: alternative ? `https://${alternative}` : null,
   };
-  if (config.projectId && input.configuredProjectId && config.projectId !== input.configuredProjectId) {
-    return { ...diagnosis, problem: "key_project_mismatch" };
-  }
+  // Only a CONFIRMED mismatch is reported; "can't compare" is never treated as a mismatch.
+  if (keyMatchesProject === false) return { ...diagnosis, problem: "key_project_mismatch" };
   const authorized = domains.some((d) => hostMatchesAuthorizedDomain(input.hostname, d));
   return { ...diagnosis, problem: authorized ? "host_authorized" : "host_not_authorized" };
 }
 
 /** Plain-language explanation. `details` adds the project's domain list (non-production only). */
+/** "algoverse-f5b48 (project number 1234…)" when the key's project is confirmed to be the configured one. */
+function projectLabel(d: DomainDiagnosis): string {
+  if (d.keyMatchesProject && d.configuredProjectId) {
+    return d.keyProjectId && /^\d+$/.test(d.keyProjectId)
+      ? `${d.configuredProjectId} (project number ${d.keyProjectId})`
+      : d.configuredProjectId;
+  }
+  return d.keyProjectId ?? "(unknown)";
+}
+
 export function describeDomainDiagnosis(d: DomainDiagnosis, details: boolean): string {
   const host = `“${d.hostname}”`;
   switch (d.problem) {
     case "host_not_authorized": {
-      let text = `Google sign-in can't work on this address: Firebase only allows it on the Authorized domains of project ${d.keyProjectId ?? "(unknown)"}, and this page's hostname ${host} isn't one of them (auth/unauthorized-domain).`;
+      let text = `Google sign-in can't work on this address: Firebase only allows it on the Authorized domains of project ${projectLabel(d)}, and this page's hostname ${host} isn't one of them (auth/unauthorized-domain).`;
       if (d.authorizedAlternativeUrl) {
         text += ` This branch's stable address ${d.authorizedAlternativeUrl} is authorised — open that instead.`;
       } else {
@@ -128,9 +178,9 @@ export function describeDomainDiagnosis(d: DomainDiagnosis, details: boolean): s
       return text;
     }
     case "key_project_mismatch":
-      return `This site's Firebase web API key belongs to project ${d.keyProjectId}, but the app is configured for ${d.configuredProjectId}. Firebase checks ${host} against ${d.keyProjectId}'s authorised domains, so fix NEXT_PUBLIC_FIREBASE_API_KEY (use the key from ${d.configuredProjectId}'s web app) and redeploy.`;
+      return `This site's Firebase web API key belongs to a different Firebase project (${d.keyProjectId && /^\d+$/.test(d.keyProjectId) ? `number ${d.keyProjectId}` : d.keyProjectId}) than the web app it's configured with (project ${d.configuredProjectId}${d.configuredProjectNumber ? `, number ${d.configuredProjectNumber}` : ""}). Use the apiKey and appId from the same Firebase web app (Project settings → General → Your apps) and redeploy.`;
     case "host_authorized":
-      return `Firebase reported auth/unauthorized-domain, but ${host} is listed in project ${d.keyProjectId}'s Authorized domains now. If you just added it, wait a minute and reload this page.`;
+      return `Firebase reported auth/unauthorized-domain, but ${host} is listed in project ${projectLabel(d)}'s Authorized domains now. If you just added it, wait a minute and reload this page.`;
     default:
       return `Firebase rejected this page's hostname ${host} (auth/unauthorized-domain). Add it under Firebase console → Authentication → Settings → Authorized domains.`;
   }

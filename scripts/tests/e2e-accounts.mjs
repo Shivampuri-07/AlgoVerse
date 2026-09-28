@@ -966,3 +966,38 @@ test("sync: a device holding another account's data asks before touching it, and
   assert.equal(cloudB.progress.length, 0, "A's progress was not merged into B");
   await context.close();
 });
+
+test("regression: Firebase reporting the numeric project number is NOT a key mismatch and doesn't block Google", async () => {
+  const context = await browser.newContext({ baseURL: "http://localhost:3124" });
+  // Real endpoint behaviour: "projectId" holds the project NUMBER. The test build's App ID is
+  // 1:000000000000:web:demo, i.e. project number 000000000000 — the same project.
+  await context.route("https://identitytoolkit.googleapis.com/v1/projects?**", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ projectId: "000000000000", authorizedDomains: ["localhost"] }) })
+  );
+  await context.route(/^https:\/\/(?!identitytoolkit\.googleapis\.com\/v1\/projects).*(googleapis|firebaseapp|google)\.com\//, (route) =>
+    route.fulfill({ status: 200, contentType: "text/html", body: "<html></html>" })
+  );
+  const page = await context.newPage();
+  await page.goto("/login");
+  await waitGoogleReady(page);
+  await page.waitForTimeout(2000); // background check done
+  assert.equal(await page.getByText(/different Firebase project|belongs to project/).count(), 0, "no false mismatch");
+  assert.equal(await page.getByText(/unauthorized-domain/).count(), 0, "authorised host, no warning");
+  // The click isn't blocked by our check: it hands over to the Firebase SDK (button goes busy)
+  // and no mismatch/domain error is shown. (The SDK's own popup needs firebaseapp.com, which
+  // this sealed test doesn't reach.)
+  await googleButton(page).click();
+  await page.waitForFunction(() => {
+    const b = [...document.querySelectorAll("button")].find((x) => x.textContent?.includes("Continue with Google"));
+    return b?.disabled === true;
+  });
+  await page.waitForTimeout(1500);
+  assert.equal(await page.getByText(/different Firebase project|unauthorized-domain/).count(), 0, "not blocked");
+
+  // On an unauthorised host the message names the configured project, not a bare number.
+  const other = await context.newPage();
+  await other.goto("http://127.0.0.1:3124/login");
+  await other.getByText(/this page's hostname “127\.0\.0\.1” isn't one of them/).waitFor({ timeout: 20_000 });
+  assert.equal(await other.getByText(/different Firebase project/).count(), 0);
+  await context.close();
+});

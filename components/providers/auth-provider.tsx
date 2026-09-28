@@ -181,6 +181,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       hostname: window.location.hostname,
       apiKey: config.apiKey,
       configuredProjectId: config.projectId,
+      configuredAppId: config.appId,
       alternativeHosts: stableHosts,
     }).then((d) => {
       const blocking = d.problem === "host_not_authorized" || d.problem === "key_project_mismatch";
@@ -313,6 +314,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         hostname,
         apiKey: config.apiKey,
         configuredProjectId: config.projectId,
+        configuredAppId: config.appId,
         alternativeHosts: stableHosts,
       });
       if (diagnostics) {

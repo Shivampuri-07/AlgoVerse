@@ -550,7 +550,7 @@ test("diagnosis: API key from another Firebase project is called out", async () 
   const { impl } = fakeProjects({ projectId: "some-other-project", authorizedDomains: ["localhost"] });
   const d = await domains.diagnoseUnauthorizedDomain({ hostname: BRANCH, apiKey: "k", configuredProjectId: "algoverse-f5b48", fetchImpl: impl });
   assert.equal(d.problem, "key_project_mismatch");
-  assert.match(domains.describeDomainDiagnosis(d, false), /belongs to project some-other-project.*configured for algoverse-f5b48/);
+  assert.match(domains.describeDomainDiagnosis(d, false), /different Firebase project \(some-other-project\).*project algoverse-f5b48/);
 });
 
 test("diagnosis: malformed entries flagged; host already authorised; endpoint unreachable", async () => {
@@ -581,3 +581,51 @@ test("stable hosts come from Vercel's branch/production URL variables, normalise
   const { stableHosts } = await import("@/lib/firebase/deployment");
   assert.deepEqual(stableHosts(), [BRANCH, "algo-verse-phi.vercel.app"]);
 }));
+
+test("project number vs project ID: the endpoint's numeric 'projectId' is compared with the App ID's project number", async () => {
+  // Fake values in the documented formats (not real credentials).
+  const NUMBER = "132880800030";
+  const APP_ID = `1:${NUMBER}:web:0123456789abcdef`;
+  assert.equal(domains.projectNumberFromAppId(APP_ID), NUMBER);
+  assert.equal(domains.projectNumberFromAppId("not-an-app-id"), null);
+  assert.equal(domains.keyMatchesConfiguredProject(NUMBER, { projectId: "algoverse-f5b48", appId: APP_ID }), true);
+  assert.equal(domains.keyMatchesConfiguredProject("999999999999", { projectId: "algoverse-f5b48", appId: APP_ID }), false);
+  assert.equal(domains.keyMatchesConfiguredProject(NUMBER, { projectId: "algoverse-f5b48", appId: null }), null, "can't tell → no claim");
+  assert.equal(domains.keyMatchesConfiguredProject("algoverse-f5b48", { projectId: "algoverse-f5b48", appId: null }), true);
+
+  // The regression: same project, reported as a NUMBER → must not be called a mismatch.
+  const same = await domains.diagnoseUnauthorizedDomain({
+    hostname: DEPLOYMENT,
+    apiKey: "k",
+    configuredProjectId: "algoverse-f5b48",
+    configuredAppId: APP_ID,
+    alternativeHosts: [BRANCH],
+    fetchImpl: fakeProjects({ projectId: NUMBER, authorizedDomains: [BRANCH, "localhost"] }).impl,
+  });
+  assert.equal(same.problem, "host_not_authorized");
+  assert.equal(same.keyMatchesProject, true);
+  assert.match(domains.describeDomainDiagnosis(same, false), /project algoverse-f5b48 \(project number 132880800030\)/);
+  assert.doesNotMatch(domains.describeDomainDiagnosis(same, false), /different Firebase project/);
+
+  // Number but no usable App ID: no mismatch claim (and so no blocking).
+  const unknown = await domains.diagnoseUnauthorizedDomain({
+    hostname: BRANCH,
+    apiKey: "k",
+    configuredProjectId: "algoverse-f5b48",
+    fetchImpl: fakeProjects({ projectId: NUMBER, authorizedDomains: [BRANCH] }).impl,
+  });
+  assert.equal(unknown.problem, "host_authorized");
+
+  // A genuinely different project number IS reported, without printing any key.
+  const other = await domains.diagnoseUnauthorizedDomain({
+    hostname: BRANCH,
+    apiKey: "AIzaSECRETLIKE",
+    configuredProjectId: "algoverse-f5b48",
+    configuredAppId: APP_ID,
+    fetchImpl: fakeProjects({ projectId: "999999999999", authorizedDomains: [BRANCH] }).impl,
+  });
+  assert.equal(other.problem, "key_project_mismatch");
+  const msg = domains.describeDomainDiagnosis(other, false);
+  assert.match(msg, /different Firebase project \(number 999999999999\).*project algoverse-f5b48, number 132880800030/);
+  assert.ok(!msg.includes("AIza"));
+});
