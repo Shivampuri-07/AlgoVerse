@@ -354,14 +354,14 @@ test("email verification: sign-up requests it, resend is rate-limited, only Fire
   }
 
   // Resend is disabled during the cooldown (no duplicate rapid requests).
-  const resend = page.getByRole("button", { name: /Resend email/ });
+  const resend = page.getByRole("button", { name: /^(Available in|Send verification email|Try once more)/ });
   assert.ok(await resend.isDisabled(), "resend disabled right after sending");
-  assert.match(await resend.innerText(), /\((\d+s|\d+:\d\d)\)/);
+  assert.match(await resend.innerText(), /Available in (\d+s|\d+:\d\d)/);
   assert.equal((await oobCodesFor(email)).length, 1, "no extra request");
 
   // Visiting the continue URL without actually verifying must NOT mark the account verified.
   await page.goto("/account?verified=1");
-  await page.getByText(/doesn't show this email as confirmed yet/).waitFor();
+  await page.getByText(/doesn't show this email as verified yet/).waitFor();
   assert.ok(await page.getByText("Not verified").isVisible());
 
   // Complete the real verification with the emailed code, then come back: now Firebase confirms it.
@@ -420,32 +420,291 @@ test("verification requests: one per sign-up, none on load/focus/reload, and aut
     await page.waitForTimeout(500);
   }
   assert.equal(sendOobCalls, 1, "no automatic sends on load, reload or focus");
-  const resend = page.getByRole("button", { name: /Resend email/ });
+  const resend = page.getByRole("button", { name: /^(Available in|Send verification email|Try once more)/ });
   assert.ok(await resend.isDisabled(), "success cooldown survives reloads");
 
   // Pretend the success cooldown has passed, then let Firebase throttle the next request.
   await page.evaluate(() => {
-    for (const k of Object.keys(localStorage)) if (k.startsWith("algoverse-verification-block")) localStorage.removeItem(k);
+    for (const k of Object.keys(localStorage)) if (k.startsWith("algoverse-verification-")) localStorage.removeItem(k);
   });
   await page.reload();
   await page.getByText("Not verified").waitFor();
   await page.waitForFunction(() => {
-    const b = [...document.querySelectorAll("button")].find((x) => x.textContent?.startsWith("Resend email"));
+    const b = [...document.querySelectorAll("button")].find((x) => /Send verification email|Try once more/.test(x.textContent ?? ""));
     return b && !b.disabled;
   });
   simulateRateLimit = true;
   await resend.click();
-  await page.getByText(/The email was not sent:.*auth\/too-many-requests/).waitFor();
+  await page.getByText(/Firebase refused the last request at/).waitFor();
+  assert.ok(await page.getByText("auth/too-many-requests").first().isVisible());
   assert.equal(sendOobCalls, 2, "exactly one request for the click");
   assert.ok(await resend.isDisabled(), "Resend paused after too-many-requests");
-  assert.match(await resend.innerText(), /\((1[45]):\d\d\)/, "about 15 minutes");
+  assert.match(await resend.innerText(), /Available in 1[45]:\d\d/, "about 15 minutes");
 
   // Reload: still paused (persisted), still no new requests.
   await page.reload();
-  await page.getByText(/auth\/too-many-requests/).waitFor();
-  assert.ok(await page.getByRole("button", { name: /Resend email/ }).isDisabled(), "pause survives reload");
-  await page.getByRole("button", { name: /Resend email/ }).click({ force: true }).catch(() => {});
+  await page.getByText(/Firebase refused the last request at/).waitFor();
+  assert.ok(await resend.isDisabled(), "pause survives reload");
+  await resend.click({ force: true }).catch(() => {});
   await page.waitForTimeout(500);
   assert.equal(sendOobCalls, 2, "no further requests while paused");
   await context.close();
+});
+
+// ------------------------------------------------------------------ cooldown state machine (real browser)
+
+async function signUpInUi(page, email, password = "letters123") {
+  await page.goto("/signup");
+  await page.waitForFunction(() => !document.querySelector('button[type="submit"]')?.disabled);
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password", { exact: true }).fill(password);
+  await page.getByLabel("Confirm password").fill(password);
+  await page.getByRole("button", { name: "Create account" }).click();
+  await page.waitForURL("**/account**");
+}
+
+const verifyButton = (page) => page.getByRole("button", { name: /^(Available in|Send verification email|Try once more)/ });
+
+async function readPauseEnd(page) {
+  return page.evaluate(() => {
+    const k = Object.keys(localStorage).find((x) => x.startsWith("algoverse-verification-state:"));
+    return k ? JSON.parse(localStorage.getItem(k)) : null;
+  });
+}
+
+async function expirePause(page) {
+  await page.evaluate(() => {
+    const k = Object.keys(localStorage).find((x) => x.startsWith("algoverse-verification-state:"));
+    const st = JSON.parse(localStorage.getItem(k));
+    st.until = Date.now() - 1000; // the user waited until the fixed expiry passed
+    localStorage.setItem(k, JSON.stringify(st));
+  });
+  await page.reload();
+  await page.getByText("Not verified").waitFor();
+}
+
+test("pause: fixed expiry, zero requests while paused, survives reload, and a repeated too-many-requests escalates instead of looping", async () => {
+  const email = `loop-${Date.now()}@example.com`;
+  const { context, page } = await newPage(CONFIGURED);
+  let calls = 0;
+  let throttle = false;
+  await context.route("**/accounts:sendOobCode**", async (route) => {
+    calls++;
+    if (throttle) {
+      await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: { code: 400, message: "TOO_MANY_ATTEMPTS_TRY_LATER", errors: [] } }) });
+    } else await route.continue();
+  });
+  await signUpInUi(page, email);
+  await page.getByText(/Firebase accepted the request at/).waitFor();
+  assert.equal(calls, 1);
+
+  // Firebase starts throttling. After the success pause ends, the user tries once.
+  throttle = true;
+  await expirePause(page);
+  await verifyButton(page).click();
+  await page.getByText(/Firebase refused the last request at/).waitFor();
+  assert.equal(calls, 2);
+  const first = await readPauseEnd(page);
+  assert.equal(first.rateLimitStreak, 1);
+  const firstEnd = first.until;
+  assert.ok(Math.abs(firstEnd - Date.now() - 15 * 60_000) < 10_000, "first pause is 15 minutes");
+  assert.ok(await page.getByTestId("verification-pause").isVisible(), "app-side pause shown separately from Firebase's answer");
+
+  // Clicking (forced) and reloading during the pause: zero requests, same fixed end.
+  for (let i = 0; i < 3; i++) await verifyButton(page).click({ force: true }).catch(() => {});
+  await page.reload();
+  await page.getByText(/Firebase refused the last request at/).waitFor();
+  assert.ok(await verifyButton(page).isDisabled());
+  assert.equal(calls, 2, "no requests during the pause");
+  assert.equal((await readPauseEnd(page)).until, firstEnd, "pause end unchanged by clicks and reloads");
+
+  // Pause ends: the page says Firebase may still be blocking, and offers ONE deliberate try.
+  await expirePause(page);
+  await page.getByText(/does\s+not\s+mean Firebase has lifted its block/).waitFor();
+  assert.match(await page.getByTestId("verification-pause").innerText(), /pause for 1 hour/);
+  assert.equal(await verifyButton(page).innerText(), "Try once more");
+  await page.waitForTimeout(1500);
+  assert.equal(calls, 2, "no automatic retry when the pause ends");
+
+  await verifyButton(page).click();
+  await page.getByText(/2 times in a row/).waitFor();
+  assert.equal(calls, 3, "exactly one request for the deliberate try");
+  const second = await readPauseEnd(page);
+  assert.equal(second.rateLimitStreak, 2);
+  assert.ok(Math.abs(second.until - Date.now() - 60 * 60_000) < 10_000, "second pause is 1 hour — not another 15 minutes");
+  assert.match(await verifyButton(page).innerText(), /^Available in (59:\d\d|1:00:00)$/, "never more than the real pause");
+  // The Google alternative is offered while Firebase blocks emails.
+  assert.ok(await page.getByText(/works even while Firebase is blocking verification emails/).isVisible());
+  await context.close();
+});
+
+// ------------------------------------------------------------------ Google Sign-In (Auth emulator popup)
+
+async function googlePopup(page, trigger, email, { cancel = false } = {}) {
+  const [popup] = await Promise.all([page.waitForEvent("popup"), trigger.click()]);
+  await popup.waitForLoadState();
+  if (cancel) {
+    await popup.close();
+    return;
+  }
+  const existing = popup.getByText(email, { exact: true });
+  if (await existing.count()) {
+    await existing.first().click();
+  } else {
+    await popup.getByText(/Add new account/i).first().click();
+    await popup.locator("#email-input").fill(email);
+    await popup.locator("#sign-in").click();
+  }
+  await popup.waitForEvent("close", { timeout: 15_000 }).catch(() => {});
+}
+
+async function accountsByEmail(email) {
+  const res = await fetch(`${AUTH}/identitytoolkit.googleapis.com/v1/projects/demo-algoverse/accounts:query`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer owner" },
+    body: JSON.stringify({ returnUserInfo: true }),
+  });
+  const { userInfo = [] } = await res.json();
+  return userInfo.filter((u) => u.email === email);
+}
+
+const googleButton = (page) => page.getByRole("button", { name: "Continue with Google" });
+async function waitGoogleReady(page) {
+  await page.waitForFunction(() => {
+    const b = [...document.querySelectorAll("button")].find((x) => x.textContent?.includes("Continue with Google"));
+    return b && !b.disabled;
+  });
+}
+
+test("Google: new user signs up with the popup; verified state comes from Firebase; secure session; local progress kept", async () => {
+  const email = `g-new-${Date.now()}@example.com`;
+  const { context, page } = await newPage(CONFIGURED);
+  await page.goto("/");
+  await page.evaluate(([k, v]) => localStorage.setItem(k, v), [STORAGE_KEY, SEEDED_PROGRESS]);
+  const before = await readProgress(page);
+
+  await page.goto("/signup");
+  await waitGoogleReady(page);
+  assert.ok(await page.getByRole("separator").isVisible(), "OR divider");
+  await googlePopup(page, googleButton(page), email);
+  await page.waitForURL("**/account**");
+  await page.getByText(email).first().waitFor();
+
+  const profile = (await page.evaluate(async () => (await fetch("/api/account/profile")).json())).profile;
+  assert.deepEqual(profile.providers, ["google.com"]);
+  assert.equal((await accountsByEmail(email)).length, 1, "one account");
+  // The UI shows exactly what Firebase (server-side) reports.
+  if (profile.emailVerified) {
+    assert.equal(profile.verifiedByGoogle, true);
+    await page.getByText("Email verified through Google.").waitFor();
+    assert.equal(await page.getByText("Confirm your email").count(), 0);
+  } else {
+    await page.getByText("Confirm your email").waitFor();
+  }
+  const cookie = (await context.cookies()).find((c) => c.name === "algoverse_session");
+  assert.ok(cookie?.httpOnly);
+  assert.equal(await readProgress(page), before, "local progress untouched");
+  await context.close();
+});
+
+test("Google: closing the popup is a quiet cancel; a Firebase failure shows a clear error; nothing is created", async () => {
+  const email = `g-cancel-${Date.now()}@example.com`;
+  const { context, page } = await newPage(CONFIGURED);
+  await page.goto("/login");
+  await waitGoogleReady(page);
+  await googlePopup(page, googleButton(page), email, { cancel: true });
+  await page.waitForTimeout(1500);
+  assert.ok(page.url().includes("/login"), "still on the login page");
+  assert.equal(await page.getByText(/didn't complete|isn't enabled|blocked the Google/).count(), 0, "no error for a cancel");
+  await waitGoogleReady(page);
+
+  await context.route("**/accounts:signInWithIdp**", (route) =>
+    route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: { code: 400, message: "OPERATION_NOT_ALLOWED", errors: [] } }) })
+  );
+  await googlePopup(page, googleButton(page), email);
+  await page.getByText("Google sign-in isn't enabled for this app yet.").waitFor();
+  assert.ok(page.url().includes("/login"));
+  assert.equal((await accountsByEmail(email)).length, 0, "no account created");
+  await context.close();
+});
+
+test("Google: an existing unverified password account links Google from the Account page — same UID, password kept, verified by Firebase", async () => {
+  const email = `g-link-${Date.now()}@example.com`;
+  const { context, page } = await newPage(CONFIGURED);
+  await signUpInUi(page, email);
+  const before = (await page.evaluate(async () => (await fetch("/api/account/profile")).json())).profile;
+  assert.equal(before.emailVerified, false);
+
+  await page.getByRole("button", { name: "Link Google account" }).first().waitFor();
+  await googlePopup(page, page.getByRole("button", { name: "Link Google account" }).first(), email);
+  await page.getByText("Email verified through Google.").waitFor();
+  const after = (await page.evaluate(async () => (await fetch("/api/account/profile")).json())).profile;
+  assert.equal(after.uid, before.uid, "same account");
+  assert.equal(after.emailVerified, true, "Firebase reports verified");
+  assert.equal(after.verifiedByGoogle, true);
+  assert.deepEqual([...after.providers].sort(), ["google.com", "password"], "password kept");
+  assert.equal((await accountsByEmail(email)).length, 1, "no duplicate account");
+
+  // The password still works.
+  await page.getByRole("button", { name: /Account menu/ }).click();
+  await page.getByRole("menuitem", { name: "Log out" }).click();
+  await page.waitForURL(`${CONFIGURED}/`);
+  await page.goto("/login");
+  await page.waitForFunction(() => !document.querySelector('button[type="submit"]')?.disabled);
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password", { exact: true }).fill("letters123");
+  await page.getByRole("button", { name: "Log in" }).click();
+  await page.waitForURL("**/account");
+  assert.equal((await page.evaluate(async () => (await fetch("/api/account/profile")).json())).profile.uid, before.uid);
+  await context.close();
+});
+
+test("Google on the login page for an unverified password account: same account (no duplicate), and Firebase's password removal is shown, not silent", async () => {
+  const email = `g-takeover-${Date.now()}@example.com`;
+  const { context, page } = await newPage(CONFIGURED);
+  await signUpInUi(page, email); // session records the password sign-in method
+  const uid = (await page.evaluate(async () => (await fetch("/api/account/profile")).json())).profile.uid;
+  await page.getByRole("button", { name: /Account menu/ }).click();
+  await page.getByRole("menuitem", { name: "Log out" }).click();
+  await page.waitForURL(`${CONFIGURED}/`);
+
+  await page.goto("/login");
+  await waitGoogleReady(page);
+  assert.ok(await page.getByText(/then choose\s+Link Google account/).isVisible(), "safe path explained before continuing");
+  await googlePopup(page, googleButton(page), email);
+  await page.waitForURL("**/account**");
+  const profile = (await page.evaluate(async () => (await fetch("/api/account/profile")).json())).profile;
+  assert.equal(profile.uid, uid, "same account and UID — data preserved");
+  assert.equal((await accountsByEmail(email)).length, 1, "no second account");
+  // Firebase's rule (observed in the emulator): Google proves the email, so the unverified password is removed.
+  assert.deepEqual(profile.providers, ["google.com"], "Firebase removed the unverified password method");
+  await page.getByTestId("password-removed-notice").waitFor();
+  assert.ok(profile.passwordRemovedAt, "server recorded when Firebase removed the password");
+  assert.ok(await page.getByRole("button", { name: "Set a password" }).first().isVisible(), "a way back to a password");
+  await context.close();
+});
+
+test("Google account whose email is NOT verified is not marked verified (server truth)", async () => {
+  const email = `g-unverified-${Date.now()}@example.com`;
+  const res = await fetch(`${AUTH}/identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=demo-api-key`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      postBody: `id_token=${encodeURIComponent(JSON.stringify({ sub: `u-${Date.now()}`, email, email_verified: false }))}&providerId=google.com`,
+      requestUri: "http://localhost",
+      returnSecureToken: true,
+    }),
+  });
+  const { idToken } = await res.json();
+  const login = await fetch(`${CONFIGURED}/api/auth/session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", origin: CONFIGURED },
+    body: JSON.stringify({ idToken }),
+  });
+  assert.equal(login.status, 200);
+  const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0];
+  const profile = (await (await fetch(`${CONFIGURED}/api/account/profile`, { headers: { cookie } })).json()).profile;
+  assert.deepEqual(profile.providers, ["google.com"]);
+  assert.equal(profile.emailVerified, false, "unverified Google email stays unverified");
+  assert.equal(profile.verifiedByGoogle, false);
 });

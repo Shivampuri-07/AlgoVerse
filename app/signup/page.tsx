@@ -8,6 +8,7 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { AuthCard, FormMessage } from "@/components/account/auth-card";
 import { FieldError, PasswordInput } from "@/components/account/password-input";
 import { SetupNotice, useAccountSetup } from "@/components/account/setup-notice";
+import { GoogleSignIn, OrDivider } from "@/components/account/google-sign-in";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -102,6 +103,15 @@ function SignupForm() {
         </>
       }
     >
+      <div className="mb-4 space-y-4">
+        <GoogleSignIn
+          next={next}
+          disabled={!setup.ready}
+          // The email already has an account: go to log in, where Google gets linked after the password.
+          onLinkRequired={() => router.push(`/login${next !== "/account" ? `?next=${encodeURIComponent(next)}` : ""}`)}
+        />
+        <OrDivider />
+      </div>
       <form onSubmit={onSubmit} className="space-y-4" noValidate aria-label="Sign up">
         <SetupNotice problems={setup.problems} />
         {formError && <FormMessage tone="error">{formError}</FormMessage>}

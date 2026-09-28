@@ -13,6 +13,30 @@ Firebase project: `algoverse-f5b48` (Spark / free plan is enough for this phase)
 Firebase console → **Build → Authentication → Get started** → **Sign-in method** →
 **Email/Password** → enable the first toggle (leave "Email link" off) → Save.
 
+## 1b. Turn on Google sign-in
+Firebase console → **Build → Authentication → Sign-in method → Add new provider → Google**
+→ **Enable** → choose a **Project support email** → **Save**. No client secret or extra
+environment variable is needed for the web app: Firebase manages the OAuth client.
+
+Sign-in with Google also needs the site's domain under **Authentication → Settings →
+Authorized domains** (step 3): the production domain, the branch preview domain
+`algo-verse-git-feat-accounts-firebase-algo-verse1.vercel.app`, and `localhost`.
+
+How AlgoVerse handles existing accounts (Firebase keeps one account per email):
+- **Recommended for existing password users:** log in with the password, then use
+  **Account → Link Google account** (also offered in the "Confirm your email" card). This keeps
+  the same account and UID and keeps the password, and Firebase itself marks the email verified
+  when the Google account has the same address.
+- **"Continue with Google" for an email whose password account was never verified:** Firebase
+  signs in to the **same** account (same UID, data kept) but **removes the old password**. This is
+  a Firebase security rule against account takeover. The login page warns about this before you
+  continue. AlgoVerse also records each account's sign-in methods on the server, so if it
+  happens, the Account page says so and offers **Set a password**.
+- When Firebase asks for confirmation instead (`auth/account-exists-with-different-credential`),
+  nothing is created or changed. You log in with your password and Google is then linked to
+  that same account.
+- A Google account that already belongs to another AlgoVerse account is never merged.
+
 ## 2. Password policy (recommended)
 Authentication → **Settings → Password policy** → enforce: minimum length **8**, require a
 letter and a number. The app checks this too, but only the Firebase setting also applies to
@@ -127,31 +151,23 @@ Vercel applies variable changes only to deployments created after the change.
 
 ## Verification email doesn't arrive
 
-The account page shows what actually happened to the last request:
+The "Confirm your email" card always shows two things separately:
+- **What Firebase last answered:** "accepted" means the request was queued, not delivered.
+  Otherwise it shows the real error code, such as `auth/too-many-requests`.
+- **AlgoVerse's own pause:** it has a **fixed end time**. Clicking during it sends nothing and
+  doesn't restart it, and it survives reloads. After a success it lasts 60 s. After Firebase
+  answers `auth/too-many-requests` it lasts 15 min, and each further refusal in a row makes it
+  longer (1 h, then 4 h, then at most 24 h), so the app never loops on identical 15-minute
+  timers. When the pause ends, nothing is sent automatically: you can **try once**, and the card
+  reminds you that the app's pause ending doesn't mean Firebase has lifted its block.
 
-- **"Firebase accepted the request at HH:MM"**: Firebase's `sendOobCode` call returned 200,
-  so the email was queued. Delivery happens afterwards on Firebase's mail servers and can't be
-  observed from the app. Check **Spam** and **Promotions** for a message from
-  `noreply@algoverse-f5b48.firebaseapp.com`.
-- **"The email was not sent: … (auth/…)"**: Firebase rejected the request, and the code says
-  why. For example, `auth/too-many-requests` means wait (sometimes up to an hour), and
-  `auth/unauthorized-continue-uri` means the preview domain isn't authorised (the email is then
-  sent again without the return link automatically).
+While Firebase is refusing verification emails, **Link Google account** verifies the address
+without any email.
 
-On Preview and local builds, the browser console also logs
-`[auth] verification email request` with the result and error code. It never logs the email
-address or any token.
-
-If requests are accepted but nothing arrives after about 10 minutes (including Spam):
-1. Firebase console → Authentication → **Templates → Email address verification**: the
-   template is enabled and the sender shows `noreply@algoverse-f5b48.firebaseapp.com`.
-2. Authentication → **Users**: the user exists and "Verified" is still unchecked.
-3. Authentication → **Usage**: the send count increases, which shows Firebase processed it.
-   The Spark plan allows 1,000 verification emails a day.
-4. Try a different mail provider (for example Outlook) to tell a Gmail filter apart from a
-   sending problem. If none of them receive it, open a Firebase support case with the time
-   of an accepted request. A custom SMTP sender (Templates → SMTP settings) is the next
-   option, but it needs your approval and an email provider.
+If requests are accepted but nothing arrives (including Spam), check Authentication →
+Templates → Email address verification and Authentication → Usage. The Spark plan allows
+1,000 verification emails a day. If a single request after a long pause is still refused,
+open a Firebase support case with its time.
 
 ## Local development without touching the real project
 ```bash

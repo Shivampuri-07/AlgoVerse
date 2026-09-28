@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CheckCircle2, KeyRound, Loader2, LogOut, MailWarning, ShieldCheck, Sparkles } from "lucide-react";
+import { CheckCircle2, KeyRound, Loader2, LogOut, ShieldCheck, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useFirebaseSetup } from "@/components/providers/firebase-config-provider";
@@ -23,7 +23,9 @@ import {
 } from "@/components/ui/dialog";
 import { firebaseErrorMessage, patchProfile } from "@/lib/auth/client";
 import { DISPLAY_NAME_MAX_LENGTH, normalizeDisplayName, type AccountProfile } from "@/lib/auth/shared";
-import { verificationFailureMessage, type VerificationOutcome } from "@/lib/auth/verification";
+import { GOOGLE_PROVIDER_ID, PASSWORD_PROVIDER_ID } from "@/lib/auth/google";
+import { EmailVerificationCard } from "@/components/account/email-verification";
+import { GoogleMark } from "@/components/account/google-sign-in";
 
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
@@ -38,49 +40,46 @@ export function AccountView({
   initialProfile: AccountProfile;
   profileLoadFailed: boolean;
 }) {
-  const {
-    user,
-    status,
-    signOut,
-    verification,
-    verificationBlockedUntil,
-    resendVerification,
-    checkVerification,
-    sendPasswordReset,
-    setDisplayName,
-  } = useAuth();
+  const { status, signOut, checkVerification, sendPasswordReset, setDisplayName, linkGoogle } = useAuth();
   const { config } = useFirebaseSetup();
   const router = useRouter();
   const params = useSearchParams();
   const [profile, setProfile] = React.useState(initialProfile);
   const [name, setName] = React.useState(initialProfile.displayName ?? "");
   const [savingName, setSavingName] = React.useState(false);
-  const [sendingVerification, setSendingVerification] = React.useState(false);
-  const [checkingVerification, setCheckingVerification] = React.useState(false);
-  const now = useNow(1000);
+  const [linkingGoogle, setLinkingGoogle] = React.useState(false);
   const [signOutAllOpen, setSignOutAllOpen] = React.useState(false);
   const [signingOut, setSigningOut] = React.useState(false);
 
-  const emailVerified = profile.emailVerified || Boolean(user?.emailVerified);
+  // Trusted state only: the server's fresh Firebase Admin lookup (never a URL parameter or the UI).
+  const emailVerified = profile.emailVerified;
+  const hasGoogle = profile.providers.includes(GOOGLE_PROVIDER_ID);
+  const hasPassword = profile.providers.includes(PASSWORD_PROVIDER_ID);
 
-  /** Only Firebase's answer (fresh server lookup) marks the email verified. */
+  const reloadProfile = React.useCallback(async (): Promise<AccountProfile | null> => {
+    try {
+      const res = await fetch("/api/account/profile", { cache: "no-store", credentials: "same-origin" });
+      if (!res.ok) return null;
+      const { profile: fresh } = (await res.json()) as { profile: AccountProfile };
+      setProfile(fresh);
+      return fresh;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  /** Asks Firebase (client reload + server lookup); only its answer marks the email verified. */
   const recheck = React.useCallback(
     async (announce: boolean) => {
-      setCheckingVerification(true);
-      try {
-        const verified = await checkVerification();
-        if (verified) {
-          setProfile((p) => ({ ...p, emailVerified: true }));
-          if (announce) toast.success("Email confirmed.");
-        } else if (announce) {
-          toast.message("Firebase doesn't show this email as confirmed yet. Open the link in the email, then try again.");
-        }
-        return verified;
-      } finally {
-        setCheckingVerification(false);
+      await checkVerification();
+      const fresh = await reloadProfile();
+      if (announce) {
+        if (fresh?.emailVerified) toast.success("Firebase confirms your email is verified.");
+        else toast.message("Firebase doesn't show this email as verified yet. Open the link in the email, then try again.");
       }
+      return fresh?.emailVerified === true;
     },
-    [checkVerification]
+    [checkVerification, reloadProfile]
   );
 
   // Arriving from the verification link (continue URL /account?verified=1): ask Firebase, don't assume.
@@ -133,20 +132,19 @@ export function AccountView({
     }
   }
 
-  async function onResendVerification() {
-    if (sendingVerification) return;
-    setSendingVerification(true);
+  async function onLinkGoogle() {
+    setLinkingGoogle(true);
     try {
-      const outcome = await resendVerification();
-      if (outcome.ok) {
-        toast.success("Firebase accepted the request. The email usually arrives within a few minutes.");
-      } else if (outcome.code === "app/already-verified") {
-        await recheck(true);
-      } else {
-        toast.error(outcomeText(outcome));
+      const outcome = await linkGoogle();
+      if (outcome.status === "linked") {
+        await checkVerification();
+        const fresh = await reloadProfile();
+        toast.success(fresh?.verifiedByGoogle ? "Google linked. Email verified through Google." : "Google is linked to your account.");
+      } else if (outcome.status === "error") {
+        toast.error(outcome.message);
       }
     } finally {
-      setSendingVerification(false);
+      setLinkingGoogle(false);
     }
   }
 
@@ -173,8 +171,6 @@ export function AccountView({
   }
 
   const memberSince = formatDate(profile.createdAt);
-  // Applies after failures too (e.g. 15 min after auth/too-many-requests), and survives reloads.
-  const cooldown = Math.max(0, verificationBlockedUntil - now);
 
   return (
     <div className="max-w-2xl space-y-6 pb-10">
@@ -189,36 +185,29 @@ export function AccountView({
         </p>
       )}
 
-      {!emailVerified && (
-        <Card className="border-warning/40">
+      {profile.passwordRemovedAt && (
+        <Card className="border-warning/40" data-testid="password-removed-notice">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <MailWarning className="h-4 w-4 text-warning" /> Confirm your email
+              <KeyRound className="h-4 w-4 text-warning" /> Your password sign-in was removed by Firebase
             </CardTitle>
             <CardDescription>
-              Confirm <span className="font-medium text-foreground">{profile.email}</span> using the link Firebase
-              emails you. Confirming it lets you recover your account, and it will be needed for AI features.
+              When this account was signed in with Google, Firebase removed its password because the email hadn&apos;t been
+              verified with it (a Firebase security rule against account takeover). This is still the same account — your
+              data is unchanged — and you can keep signing in with Google. To use a password again, set one below.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <VerificationStatus outcome={verification} now={now} projectId={config?.projectId ?? null} />
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                onClick={onResendVerification}
-                disabled={sendingVerification || cooldown > 0}
-                aria-describedby="verification-status"
-              >
-                {sendingVerification && <Loader2 className="h-4 w-4 animate-spin" />}
-                {cooldown > 0 ? `Resend email (${formatWait(cooldown)})` : "Resend email"}
-              </Button>
-              <Button variant="ghost" onClick={() => void recheck(true)} disabled={checkingVerification}>
-                {checkingVerification && <Loader2 className="h-4 w-4 animate-spin" />}
-                I&apos;ve confirmed it
-              </Button>
-            </div>
+          <CardContent>
+            <Button variant="outline" onClick={onChangePassword}>
+              <KeyRound className="h-4 w-4" />
+              Set a password
+            </Button>
           </CardContent>
         </Card>
+      )}
+
+      {!emailVerified && (
+        <EmailVerificationCard profile={profile} projectId={config?.projectId ?? null} reloadProfile={reloadProfile} />
       )}
 
       <Card>
@@ -239,6 +228,11 @@ export function AccountView({
                 <Badge variant="warning">Not verified</Badge>
               )}
             </p>
+            {emailVerified && (
+              <p className="text-xs text-muted-foreground" data-testid="verified-via">
+                {profile.verifiedByGoogle ? "Email verified through Google." : "Email verified (confirmed by Firebase)."}
+              </p>
+            )}
           </div>
           <form onSubmit={saveName} className="space-y-2">
             <Label htmlFor="display-name">Display name</Label>
@@ -284,18 +278,38 @@ export function AccountView({
           </CardTitle>
           <CardDescription>AlgoVerse never sees your password. Sign-in is handled by Firebase Authentication.</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={onChangePassword}>
-            <KeyRound className="h-4 w-4" />
-            Change password
-          </Button>
-          <Button variant="outline" onClick={() => onSignOut(false)} disabled={signingOut}>
-            <LogOut className="h-4 w-4" />
-            Sign out
-          </Button>
-          <Button variant="ghost" onClick={() => setSignOutAllOpen(true)} disabled={signingOut}>
-            Sign out of all devices
-          </Button>
+        <CardContent className="space-y-4">
+          <div className="space-y-1.5">
+            <p className="text-sm font-medium">Sign-in methods</p>
+            <div className="flex flex-wrap gap-2" data-testid="sign-in-methods">
+              {hasPassword && <Badge variant="outline">Email &amp; password</Badge>}
+              {hasGoogle && (
+                <Badge variant="outline" className="gap-1.5">
+                  <GoogleMark className="h-3 w-3" /> Google
+                </Badge>
+              )}
+              {!hasPassword && !hasGoogle && <span className="text-sm text-muted-foreground">—</span>}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {!hasGoogle && (
+              <Button variant="outline" onClick={onLinkGoogle} disabled={linkingGoogle}>
+                {linkingGoogle ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleMark />}
+                Link Google account
+              </Button>
+            )}
+            <Button variant="outline" onClick={onChangePassword}>
+              <KeyRound className="h-4 w-4" />
+              {hasPassword || profile.providers.length === 0 ? "Change password" : "Set a password"}
+            </Button>
+            <Button variant="outline" onClick={() => onSignOut(false)} disabled={signingOut}>
+              <LogOut className="h-4 w-4" />
+              Sign out
+            </Button>
+            <Button variant="ghost" onClick={() => setSignOutAllOpen(true)} disabled={signingOut}>
+              Sign out of all devices
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -334,71 +348,4 @@ export function AccountView({
       </Dialog>
     </div>
   );
-}
-
-/** Re-renders every `intervalMs` (for the resend countdown). */
-function useNow(intervalMs: number): number {
-  const [now, setNow] = React.useState(() => Date.now());
-  React.useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), intervalMs);
-    return () => window.clearInterval(id);
-  }, [intervalMs]);
-  return now;
-}
-
-function outcomeText(outcome: Extract<VerificationOutcome, { ok: false }>): string {
-  switch (outcome.code) {
-    case "app/cooldown":
-      return `Please wait ${formatWait(Number(outcome.detail) * 1000)} before requesting another email.`;
-    case "app/no-current-user":
-      return "Your sign-in on this device has expired. Log out, log in again, then resend the email.";
-    default:
-      return `${verificationFailureMessage(outcome.code, outcome.detail)} (${outcome.code})`;
-  }
-}
-
-/**
- * What actually happened to the last request. "Accepted" means Firebase's server took the
- * request (HTTP 200) — delivery to the inbox happens afterwards and can't be observed from here.
- */
-function VerificationStatus({
-  outcome,
-  now,
-  projectId,
-}: {
-  outcome: VerificationOutcome | null;
-  now: number;
-  projectId: string | null;
-}) {
-  if (!outcome) return null;
-  const time = new Date(outcome.at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  const minutes = Math.floor((now - outcome.at) / 60_000);
-  if (outcome.ok) {
-    return (
-      <div id="verification-status" role="status" className="space-y-1 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
-        <p>
-          <span className="font-medium">Firebase accepted the request at {time}.</span>{" "}
-          <span className="text-muted-foreground">That means the email was queued, not that it has arrived.</span>
-        </p>
-        <p className="text-muted-foreground">
-          Look for a message from{" "}
-          <span className="font-medium text-foreground">noreply@{projectId ?? "your-project"}.firebaseapp.com</span>, including
-          Spam and Promotions.{minutes >= 10 ? " If it still hasn't arrived after 10 minutes, check the Firebase console (see the setup guide)." : ""}
-        </p>
-      </div>
-    );
-  }
-  if (outcome.code === "app/cooldown" || outcome.code === "app/already-verified") return null;
-  return (
-    <p id="verification-status" role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-      The email was not sent: {outcomeText(outcome)}
-    </p>
-  );
-}
-
-/** "45s" or "14:05" for the resend countdown. */
-function formatWait(ms: number): string {
-  const total = Math.ceil(ms / 1000);
-  if (total < 60) return `${total}s`;
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }

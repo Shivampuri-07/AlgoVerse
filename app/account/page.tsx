@@ -32,7 +32,16 @@ export default async function AccountPage() {
   return (
     <AccountView
       initialProfile={
-        profile ?? { uid: user.uid, email: user.email, emailVerified: user.emailVerified, displayName: null, createdAt: null }
+        profile ?? {
+          uid: user.uid,
+          email: user.email,
+          emailVerified: user.emailVerified,
+          displayName: null,
+          createdAt: null,
+          providers: [],
+          verifiedByGoogle: false,
+          passwordRemovedAt: null,
+        }
       }
       profileLoadFailed={profile === null}
     />

@@ -21,10 +21,21 @@ export interface SessionUser {
   email: string | null;
   emailVerified: boolean;
   displayName: string | null;
+  /** One-off notice from session creation: Firebase removed the password sign-in method. */
+  notice?: "password_removed";
 }
 
 export interface AccountProfile extends SessionUser {
   createdAt: string | null;
+  /** Firebase sign-in methods linked to the account, e.g. ["password", "google.com"]. */
+  providers: string[];
+  /**
+   * Firebase marks the email verified AND a linked Google identity has that same email — i.e.
+   * the verification is backed by Google. Derived on the server from Firebase Admin data only.
+   */
+  verifiedByGoogle: boolean;
+  /** When Firebase removed this account's password sign-in (see recordSignInMethods), if it has none now. */
+  passwordRemovedAt: string | null;
 }
 
 export type AuthErrorCode =

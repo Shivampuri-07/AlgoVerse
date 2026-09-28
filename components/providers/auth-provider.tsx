@@ -13,11 +13,23 @@ import {
 } from "@/lib/auth/client";
 import type { AccountProfile, SessionUser } from "@/lib/auth/shared";
 import {
+  INITIAL_VERIFICATION_STATE,
+  applyOutcome,
   firebaseErrorInfo,
-  nextAllowedAt,
+  newerState,
+  parseStoredState,
+  requestGate,
   requestVerificationEmail,
   type VerificationOutcome,
+  type VerificationState,
 } from "@/lib/auth/verification";
+import {
+  createGoogleProvider,
+  googleErrorMessage,
+  isGoogleCancel,
+  type GoogleOutcome,
+  type PendingGoogleLink,
+} from "@/lib/auth/google";
 
 /**
  * Account state for the whole app.
@@ -40,12 +52,27 @@ interface AuthContextValue {
   signUp: (email: string, password: string) => Promise<SessionUser>;
   signOut: (opts?: { everywhere?: boolean }) => Promise<void>;
   sendPasswordReset: (email: string) => Promise<void>;
-  /** Result of the latest verification-email request for the signed-in user (this browser). */
-  verification: VerificationOutcome | null;
-  /** Until when (ms epoch) the next verification email may not be requested; persisted per account. */
-  verificationBlockedUntil: number;
-  /** Asks Firebase to send the verification email again. Honours the cooldown; never throws. */
+  /**
+   * Verification-email state for the signed-in user, persisted per account: the fixed pause
+   * expiry, the last REAL Firebase answer, and how many rate-limit answers came in a row.
+   */
+  verificationState: VerificationState;
+  /**
+   * Asks Firebase to send the verification email once. During a pause it makes ZERO requests
+   * and returns an "app/cooldown" outcome without changing the pause. Never throws.
+   */
   resendVerification: () => Promise<VerificationOutcome>;
+  /** Sign in (or up) with Google in a popup; falls back to nothing automatically. Never throws. */
+  signInWithGoogle: () => Promise<GoogleOutcome>;
+  /** Same as signInWithGoogle but by full-page redirect (when pop-ups are blocked). */
+  signInWithGoogleRedirect: () => Promise<GoogleOutcome>;
+  /** Links a Google identity to the signed-in account (popup). Never throws. */
+  linkGoogle: () => Promise<GoogleOutcome>;
+  /** Set when Google sign-in needs the existing account's password first (email only). */
+  pendingGoogleLink: { email: string | null } | null;
+  /** After a password sign-in: links the pending Google credential to this account. */
+  completePendingGoogleLink: () => Promise<GoogleOutcome>;
+  cancelPendingGoogleLink: () => void;
   /**
    * Re-reads the Firebase user and asks the SERVER (fresh Firebase Admin lookup) whether the
    * email is verified. Only a `true` from Firebase marks the account verified.
@@ -79,30 +106,29 @@ async function sessionOrSignOut(auth: Auth, fbUser: User, prefix = ""): Promise<
   }
 }
 
-const BLOCK_KEY = "algoverse-verification-block";
+const STATE_KEY = "algoverse-verification-state";
 const CONTINUE_REJECTED_KEY = "algoverse-verification-continue-rejected";
+/** Format written by e8d6237 — read once and migrated. */
+const OLD_BLOCK_KEY = "algoverse-verification-block";
 
-/** Persisted per account: the last outcome (no email address) and when the next request is allowed. */
-interface StoredBlock {
-  until: number;
-  outcome: VerificationOutcome;
-}
-
-function readBlock(uid: string): StoredBlock | null {
+/** Persisted verification state for `uid` (no email address or token is ever stored). */
+function readState(uid: string): VerificationState | null {
   try {
-    const raw = window.localStorage.getItem(`${BLOCK_KEY}:${uid}`);
-    const parsed = raw ? (JSON.parse(raw) as StoredBlock) : null;
-    return parsed && typeof parsed.until === "number" && parsed.outcome ? parsed : null;
+    return (
+      parseStoredState(window.localStorage.getItem(`${STATE_KEY}:${uid}`)) ??
+      parseStoredState(window.localStorage.getItem(`${OLD_BLOCK_KEY}:${uid}`))
+    );
   } catch {
     return null;
   }
 }
 
-function writeBlock(uid: string, block: StoredBlock) {
+function writeState(uid: string, state: VerificationState) {
   try {
-    window.localStorage.setItem(`${BLOCK_KEY}:${uid}`, JSON.stringify(block));
+    window.localStorage.setItem(`${STATE_KEY}:${uid}`, JSON.stringify(state));
+    window.localStorage.removeItem(`${OLD_BLOCK_KEY}:${uid}`);
   } catch {
-    /* storage unavailable — the in-memory state still enforces the wait */
+    /* storage unavailable — the in-memory state still enforces the pause */
   }
 }
 
@@ -130,10 +156,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const load = React.useCallback(() => loadAuth(config, authEmulatorHost), [config, authEmulatorHost]);
   const [status, setStatus] = React.useState<AuthStatus>(configured ? "loading" : "unavailable");
   const [user, setUser] = React.useState<SessionUser | null>(null);
-  const [verification, setVerification] = React.useState<VerificationOutcome | null>(null);
-  const [verificationBlockedUntil, setVerificationBlockedUntil] = React.useState(0);
+  const [verificationState, setVerificationState] = React.useState<VerificationState>(INITIAL_VERIFICATION_STATE);
+  const stateRef = React.useRef<{ uid: string | null; state: VerificationState }>({ uid: null, state: INITIAL_VERIFICATION_STATE });
   const { details: diagnostics } = useFirebaseSetup();
   const sendingRef = React.useRef<Promise<VerificationOutcome> | null>(null);
+  const pendingLinkRef = React.useRef<PendingGoogleLink | null>(null);
+  const [pendingGoogleLink, setPendingGoogleLink] = React.useState<{ email: string | null } | null>(null);
+
+  /** Single place that changes the verification state: memory + storage + render. */
+  const commitState = React.useCallback((uid: string, state: VerificationState) => {
+    stateRef.current = { uid, state };
+    writeState(uid, state);
+    setVerificationState(state);
+  }, []);
+
+  /** Current state for `uid`: the newer of memory and storage (another tab may have acted). */
+  const currentState = React.useCallback((uid: string): VerificationState => {
+    const mem = stateRef.current.uid === uid ? stateRef.current.state : null;
+    return newerState(mem, readState(uid));
+  }, []);
 
   /**
    * One verification-email request with safe diagnostics (non-production only): outcome,
@@ -150,10 +191,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           continueUrlRejected() ? null : continueUrl("/account?verified=1")
         );
         if (outcome.ok && outcome.fallbackCode) rememberContinueUrlRejected();
-        const until = nextAllowedAt(outcome);
-        if (until > 0) writeBlock(fbUser.uid, { until, outcome });
-        setVerificationBlockedUntil(until);
-        setVerification(outcome);
+        const next = applyOutcome(currentState(fbUser.uid), outcome);
+        commitState(fbUser.uid, next);
+        const until = next.until;
         if (diagnostics) {
           console.info("[auth] verification email request", {
             result: outcome.ok ? "accepted by Firebase (sendOobCode 200)" : "rejected by Firebase",
@@ -161,6 +201,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             reason: outcome.ok ? null : outcome.detail || null,
             continueUrlUsed: outcome.ok ? outcome.continueUrlUsed : null,
             nextRequestAllowedInSeconds: Math.max(0, Math.round((until - Date.now()) / 1000)),
+            consecutiveRateLimits: next.rateLimitStreak,
             userPresent: true,
             emailVerified: fbUser.emailVerified,
           });
@@ -174,23 +215,71 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         sendingRef.current = null;
       }
     },
-    [diagnostics]
+    [diagnostics, currentState, commitState]
   );
 
   const applySignedIn = React.useCallback((u: SessionUser) => {
     setUser(u);
     setStatus("signed-in");
-    // Restore the last verification request (and its wait) for this account after a reload.
-    const stored = readBlock(u.uid);
-    if (stored) {
-      setVerification((v) => v ?? stored.outcome);
-      setVerificationBlockedUntil((t) => Math.max(t, stored.until));
-    }
+    // Restore this account's verification state (fixed pause expiry, last Firebase answer).
+    const state = newerState(stateRef.current.uid === u.uid ? stateRef.current.state : null, readState(u.uid));
+    stateRef.current = { uid: u.uid, state };
+    setVerificationState(state);
   }, []);
   const applySignedOut = React.useCallback(() => {
     setUser(null);
     setStatus("signed-out");
+    stateRef.current = { uid: null, state: INITIAL_VERIFICATION_STATE };
+    setVerificationState(INITIAL_VERIFICATION_STATE);
   }, []);
+
+  // Another tab changed this account's verification state: follow it (never extends it by itself).
+  React.useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      const uid = stateRef.current.uid;
+      if (!uid || e.key !== `${STATE_KEY}:${uid}`) return;
+      const state = newerState(stateRef.current.state, parseStoredState(e.newValue));
+      stateRef.current = { uid, state };
+      setVerificationState(state);
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  /** Firebase error from a Google flow → outcome. Remembers a pending link credential when needed. */
+  const googleFailure = React.useCallback(async (err: unknown): Promise<GoogleOutcome> => {
+    if (err instanceof AccountError) return { status: "error", code: err.code, message: err.message };
+    const { code } = firebaseErrorInfo(err);
+    if (isGoogleCancel(code)) return { status: "cancelled" };
+    if (code === "auth/account-exists-with-different-credential") {
+      const { GoogleAuthProvider } = await import("firebase/auth");
+      const credential = GoogleAuthProvider.credentialFromError(err as never);
+      const email = ((err as { customData?: { email?: unknown } }).customData?.email as string | undefined) ?? null;
+      if (credential) {
+        pendingLinkRef.current = { credential, email };
+        setPendingGoogleLink({ email });
+      }
+      return { status: "link-required", email };
+    }
+    return { status: "error", code, message: googleErrorMessage(code) };
+  }, []);
+
+  /** After any Google sign-in: fresh Firebase state, then the server session. */
+  const finishGoogleSignIn = React.useCallback(
+    async (auth: Auth, fbUser: User, isNewUser: boolean): Promise<GoogleOutcome> => {
+      await fbUser.reload().catch(() => {});
+      const session = await sessionOrSignOut(auth, fbUser);
+      // emailVerified comes from Firebase (the reloaded user), never from Google's profile or the UI.
+      applySignedIn({ ...session, emailVerified: fbUser.emailVerified, displayName: fbUser.displayName ?? session.displayName });
+      return {
+        status: "signed-in",
+        isNewUser,
+        emailVerified: fbUser.emailVerified,
+        passwordRemoved: session.notice === "password_removed",
+      };
+    },
+    [applySignedIn]
+  );
 
   React.useEffect(() => {
     if (!configured) return;
@@ -200,8 +289,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         const auth = await load();
-        const { onAuthStateChanged, signOut } = await import("firebase/auth");
+        const { onAuthStateChanged, signOut, getRedirectResult } = await import("firebase/auth");
         if (cancelled) return;
+        // Returning from a Google redirect sign-in: surface conflicts (link required) and errors.
+        try {
+          await getRedirectResult(auth);
+        } catch (err) {
+          const outcome = await googleFailure(err);
+          if (outcome.status === "error") console.warn(`[auth] Google redirect sign-in failed (${outcome.code})`);
+        }
         unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
           try {
             const server = await fetchSession().catch(() => null);
@@ -240,7 +336,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       unsubscribe?.();
     };
-  }, [configured, load, applySignedIn, applySignedOut]);
+  }, [configured, load, applySignedIn, applySignedOut, googleFailure]);
 
   const value = React.useMemo<AuthContextValue>(
     () => ({
@@ -275,8 +371,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const auth = await load();
         const { signOut } = await import("firebase/auth");
         await signOut(auth);
-        setVerification(null);
-        setVerificationBlockedUntil(0);
+        pendingLinkRef.current = null;
+        setPendingGoogleLink(null);
         applySignedOut();
       },
       async sendPasswordReset(email) {
@@ -295,8 +391,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           throw err;
         }
       },
-      verification,
-      verificationBlockedUntil,
+      verificationState,
       async resendVerification() {
         let auth: Auth;
         try {
@@ -311,11 +406,78 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (current.emailVerified) {
           return { ok: false, at: Date.now(), code: "app/already-verified", detail: "" };
         }
-        // Persisted wait from ANY previous outcome (success or failure), across reloads and tabs.
-        const until = Math.max(readBlock(current.uid)?.until ?? 0, verificationBlockedUntil);
-        const wait = until - Date.now();
-        if (wait > 0) return { ok: false, at: Date.now(), code: "app/cooldown", detail: String(Math.ceil(wait / 1000)) };
+        // App-side pause: ZERO requests, and the pause is NOT extended or restarted.
+        const gate = requestGate(currentState(current.uid));
+        if (!gate.allowed) {
+          return { ok: false, at: Date.now(), code: "app/cooldown", detail: String(Math.ceil(gate.remainingMs / 1000)) };
+        }
         return sendVerificationEmail(current);
+      },
+      async signInWithGoogle() {
+        try {
+          const auth = await load();
+          const { signInWithPopup, getAdditionalUserInfo } = await import("firebase/auth");
+          const cred = await signInWithPopup(auth, await createGoogleProvider());
+          return await finishGoogleSignIn(auth, cred.user, getAdditionalUserInfo(cred)?.isNewUser ?? false);
+        } catch (err) {
+          return googleFailure(err);
+        }
+      },
+      async signInWithGoogleRedirect() {
+        try {
+          const auth = await load();
+          const { signInWithRedirect } = await import("firebase/auth");
+          await signInWithRedirect(auth, await createGoogleProvider());
+          return { status: "redirecting" };
+        } catch (err) {
+          return googleFailure(err);
+        }
+      },
+      async linkGoogle() {
+        try {
+          const auth = await load();
+          const current = auth.currentUser;
+          if (!current) return { status: "error", code: "app/no-current-user", message: "Please log in again first." };
+          const { linkWithPopup } = await import("firebase/auth");
+          const cred = await linkWithPopup(current, await createGoogleProvider());
+          await cred.user.reload().catch(() => {});
+          setUser((u) => (u && u.uid === cred.user.uid ? { ...u, emailVerified: cred.user.emailVerified } : u));
+          return { status: "linked", emailVerified: cred.user.emailVerified };
+        } catch (err) {
+          return googleFailure(err);
+        }
+      },
+      pendingGoogleLink,
+      async completePendingGoogleLink() {
+        const pending = pendingLinkRef.current;
+        if (!pending) return { status: "cancelled" };
+        try {
+          const auth = await load();
+          const current = auth.currentUser;
+          if (!current) return { status: "error", code: "app/no-current-user", message: "Please log in first." };
+          if (pending.email && current.email && pending.email.toLowerCase() !== current.email.toLowerCase()) {
+            // Never attach a Google identity to an account with a different email.
+            return {
+              status: "error",
+              code: "app/email-mismatch",
+              message: "You logged in to a different account than the one Google matched, so Google wasn't linked.",
+            };
+          }
+          const { linkWithCredential } = await import("firebase/auth");
+          const cred = await linkWithCredential(current, pending.credential);
+          await cred.user.reload().catch(() => {});
+          setUser((u) => (u && u.uid === cred.user.uid ? { ...u, emailVerified: cred.user.emailVerified } : u));
+          return { status: "linked", emailVerified: cred.user.emailVerified };
+        } catch (err) {
+          return googleFailure(err);
+        } finally {
+          pendingLinkRef.current = null;
+          setPendingGoogleLink(null);
+        }
+      },
+      cancelPendingGoogleLink() {
+        pendingLinkRef.current = null;
+        setPendingGoogleLink(null);
       },
       async checkVerification() {
         try {
@@ -348,7 +510,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser((u) => (u ? { ...u, displayName: name } : u));
       },
     }),
-    [status, user, verification, verificationBlockedUntil, load, sendVerificationEmail, applySignedIn, applySignedOut]
+    [
+      status,
+      user,
+      verificationState,
+      pendingGoogleLink,
+      load,
+      currentState,
+      sendVerificationEmail,
+      finishGoogleSignIn,
+      googleFailure,
+      applySignedIn,
+      applySignedOut,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -424,15 +424,64 @@ test("resend cooldown", () => {
   assert.equal(verification.cooldownRemaining(t, t + verification.VERIFICATION_COOLDOWN_MS + 1), 0);
 });
 
-test("the wait after a request applies to failures too (15 min after auth/too-many-requests)", () => {
-  const at = 5_000_000;
+// ---------------------------------------------------------------- verification pause state machine
+
+const MIN = 60_000;
+const tmr = (at: number) => ({ ok: false as const, at, code: "auth/too-many-requests", detail: "" });
+const cooldownClick = (at: number, left: number) => ({ ok: false as const, at, code: "app/cooldown", detail: String(left) });
+
+test("pause has a FIXED expiry: clicks during it (app/cooldown) never extend or restart it", () => {
   const v = verification;
-  assert.equal(v.nextAllowedAt({ ok: true, at, continueUrlUsed: true }), at + v.VERIFICATION_COOLDOWN_MS);
-  assert.equal(v.nextAllowedAt({ ok: false, at, code: "auth/too-many-requests", detail: "" }), at + v.RATE_LIMITED_BACKOFF_MS);
-  assert.equal(v.RATE_LIMITED_BACKOFF_MS, 15 * 60_000);
-  assert.equal(v.nextAllowedAt({ ok: false, at, code: "auth/quota-exceeded", detail: "" }), at + v.QUOTA_BACKOFF_MS);
-  assert.equal(v.nextAllowedAt({ ok: false, at, code: "auth/internal-error", detail: "" }), at + v.VERIFICATION_COOLDOWN_MS);
-  assert.equal(v.nextAllowedAt({ ok: false, at, code: "auth/network-request-failed", detail: "" }), 0, "offline: retry allowed");
+  const t0 = 1_000_000_000;
+  const s1 = v.applyOutcome(v.INITIAL_VERIFICATION_STATE, tmr(t0));
+  assert.equal(s1.until, t0 + 15 * MIN);
+  let s = s1;
+  for (let i = 1; i <= 20; i++) s = v.applyOutcome(s, cooldownClick(t0 + i * 30_000, 1));
+  assert.deepEqual(s, s1, "20 clicks during the pause change nothing");
+  assert.equal(v.requestGate(s, t0 + 14 * MIN).allowed, false);
+  assert.equal(v.requestGate(s, t0 + 15 * MIN + 1).allowed, true, "allowed exactly after the fixed expiry");
+});
+
+test("repeated auth/too-many-requests escalates (15m → 1h → 4h → 24h cap) instead of an endless identical 15-minute loop", () => {
+  const v = verification;
+  let s = v.INITIAL_VERIFICATION_STATE;
+  let t = 2_000_000_000;
+  const waits: number[] = [];
+  for (let i = 0; i < 6; i++) {
+    s = v.applyOutcome(s, tmr(t));
+    waits.push(s.until - t);
+    t = s.until + 1; // the user waits for the pause to end, then tries ONCE
+  }
+  assert.deepEqual(waits, [15 * MIN, 60 * MIN, 240 * MIN, 1440 * MIN, 1440 * MIN, 1440 * MIN]);
+  assert.equal(s.rateLimitStreak, 6);
+  assert.equal(v.nextRateLimitBackoff(v.applyOutcome(v.INITIAL_VERIFICATION_STATE, tmr(t))), 60 * MIN, "UI can say what comes next");
+});
+
+test("an accepted request resets the streak; a network error neither extends the pause nor counts as Firebase's answer", () => {
+  const v = verification;
+  const t = 3_000_000_000;
+  const limited = v.applyOutcome(v.applyOutcome(v.INITIAL_VERIFICATION_STATE, tmr(t)), tmr(t + 16 * MIN));
+  assert.equal(limited.rateLimitStreak, 2);
+  const net = v.applyOutcome(limited, { ok: false, at: t + 17 * MIN, code: "auth/network-request-failed", detail: "" });
+  assert.equal(net.until, limited.until, "network failure keeps the same fixed expiry");
+  assert.equal(net.rateLimitStreak, 2);
+  const ok = v.applyOutcome(limited, { ok: true, at: t + 100 * MIN, continueUrlUsed: true });
+  assert.equal(ok.rateLimitStreak, 0);
+  assert.equal(ok.until, t + 100 * MIN + v.VERIFICATION_COOLDOWN_MS);
+  assert.equal(v.applyOutcome(v.INITIAL_VERIFICATION_STATE, { ok: false, at: t, code: "auth/quota-exceeded", detail: "" }).until, t + v.QUOTA_BACKOFF_MS);
+});
+
+test("stored state survives reloads (round-trip), migrates the old format, and rejects junk", () => {
+  const v = verification;
+  const s = v.applyOutcome(v.INITIAL_VERIFICATION_STATE, tmr(4_000_000_000));
+  assert.deepEqual(v.parseStoredState(JSON.stringify(s)), s);
+  const old = v.parseStoredState(JSON.stringify({ until: 5, outcome: tmr(1) }));
+  assert.deepEqual(old, { until: 5, last: tmr(1), rateLimitStreak: 1 });
+  for (const junk of [null, "", "{", "[]", '{"until":"x"}']) assert.equal(v.parseStoredState(junk), null);
+  // Two tabs: the one with the newer real answer wins.
+  const newer = v.applyOutcome(s, tmr(4_100_000_000));
+  assert.equal(v.newerState(s, newer), newer);
+  assert.equal(v.newerState(newer, s), newer);
 });
 
 test("a continue URL already known to be rejected → exactly one request per send", async () => {

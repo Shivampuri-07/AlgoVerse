@@ -11,11 +11,7 @@ import type { User } from "firebase/auth";
 
 /** Minimum gap between two verification emails for the same account (Firebase also rate-limits). */
 export const VERIFICATION_COOLDOWN_MS = 60_000;
-/**
- * After Firebase says auth/too-many-requests, don't ask again for this long: every request made
- * while throttled is another failed attempt and can keep the block in place.
- */
-export const RATE_LIMITED_BACKOFF_MS = 15 * 60_000;
+/** Pause after Firebase reports the daily email quota is exhausted. */
 export const QUOTA_BACKOFF_MS = 60 * 60_000;
 
 export type VerificationOutcome =
@@ -86,24 +82,94 @@ export async function requestVerificationEmail(
 }
 
 /**
- * Earliest time another request may be made after `outcome` — for successes AND failures, so a
- * rejected request can't be retried in a tight loop. Transient/local problems don't block.
+ * Pauses after consecutive auth/too-many-requests answers from Firebase. Each deliberate attempt
+ * that Firebase still refuses waits longer than the last, capped at a day — so a block that
+ * persists can never turn into an endless loop of identical 15-minute timers.
  */
-export function nextAllowedAt(outcome: VerificationOutcome): number {
-  if (outcome.ok) return outcome.at + VERIFICATION_COOLDOWN_MS;
+export const RATE_LIMIT_BACKOFFS_MS = [15 * 60_000, 60 * 60_000, 4 * 60 * 60_000, 24 * 60 * 60_000] as const;
+
+/**
+ * Persisted per account. `until` is a FIXED expiry: only a real Firebase answer can set it;
+ * clicks during the pause (app-side refusals) never extend or restart it.
+ */
+export interface VerificationState {
+  until: number;
+  /** Last real Firebase answer (never an app-side refusal). */
+  last: VerificationOutcome | null;
+  /** Consecutive auth/too-many-requests answers; reset by an accepted request. */
+  rateLimitStreak: number;
+}
+
+export const INITIAL_VERIFICATION_STATE: VerificationState = { until: 0, last: null, rateLimitStreak: 0 };
+
+/** App-side refusals ("app/…") are not Firebase answers and never change the state. */
+export function isAppSideOutcome(outcome: VerificationOutcome): boolean {
+  return !outcome.ok && outcome.code.startsWith("app/");
+}
+
+/** Next state after a real Firebase answer. */
+export function applyOutcome(state: VerificationState, outcome: VerificationOutcome): VerificationState {
+  if (isAppSideOutcome(outcome)) return state;
+  if (outcome.ok) return { until: outcome.at + VERIFICATION_COOLDOWN_MS, last: outcome, rateLimitStreak: 0 };
   switch (outcome.code) {
-    case "auth/too-many-requests":
-      return outcome.at + RATE_LIMITED_BACKOFF_MS;
+    case "auth/too-many-requests": {
+      const streak = state.rateLimitStreak + 1;
+      const wait = RATE_LIMIT_BACKOFFS_MS[Math.min(streak, RATE_LIMIT_BACKOFFS_MS.length) - 1];
+      return { until: outcome.at + wait, last: outcome, rateLimitStreak: streak };
+    }
     case "auth/quota-exceeded":
-      return outcome.at + QUOTA_BACKOFF_MS;
+      return { until: outcome.at + QUOTA_BACKOFF_MS, last: outcome, rateLimitStreak: state.rateLimitStreak };
     case "auth/network-request-failed":
-    case "app/cooldown":
-    case "app/no-current-user":
-    case "app/already-verified":
-      return 0;
+      // Never reached Firebase: keep whatever pause already applies, allow a retry.
+      return { ...state, last: outcome };
     default:
-      return outcome.at + VERIFICATION_COOLDOWN_MS;
+      return { until: outcome.at + VERIFICATION_COOLDOWN_MS, last: outcome, rateLimitStreak: state.rateLimitStreak };
   }
+}
+
+/** May a real request be made now? Pure; never changes the state. */
+export function requestGate(state: VerificationState, now = Date.now()): { allowed: true } | { allowed: false; remainingMs: number } {
+  const remainingMs = state.until - now;
+  return remainingMs > 0 ? { allowed: false, remainingMs } : { allowed: true };
+}
+
+/** The pause that would follow if Firebase refuses the next attempt too (shown to the user). */
+export function nextRateLimitBackoff(state: VerificationState): number {
+  return RATE_LIMIT_BACKOFFS_MS[Math.min(state.rateLimitStreak + 1, RATE_LIMIT_BACKOFFS_MS.length) - 1];
+}
+
+function isOutcome(v: unknown): v is VerificationOutcome {
+  const o = v as { ok?: unknown; at?: unknown } | null;
+  return !!o && typeof o.ok === "boolean" && typeof o.at === "number";
+}
+
+/** Reads a stored state, including the previous format ({ until, outcome }). Invalid → null. */
+export function parseStoredState(raw: string | null): VerificationState | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as Record<string, unknown>;
+    if (typeof v.until !== "number") return null;
+    if ("rateLimitStreak" in v) {
+      const last = isOutcome(v.last) ? v.last : null;
+      const streak = typeof v.rateLimitStreak === "number" && v.rateLimitStreak >= 0 ? Math.floor(v.rateLimitStreak) : 0;
+      return { until: v.until, last, rateLimitStreak: streak };
+    }
+    // Previous format from e8d6237.
+    const last = isOutcome(v.outcome) ? v.outcome : null;
+    const limited = !!last && !last.ok && last.code === "auth/too-many-requests";
+    return { until: v.until, last, rateLimitStreak: limited ? 1 : 0 };
+  } catch {
+    return null;
+  }
+}
+
+/** Of two states for the same account (memory vs storage / another tab), the more recent one. */
+export function newerState(a: VerificationState | null, b: VerificationState | null): VerificationState {
+  if (!a) return b ?? INITIAL_VERIFICATION_STATE;
+  if (!b) return a;
+  const at = (s: VerificationState) => s.last?.at ?? 0;
+  if (at(a) !== at(b)) return at(a) > at(b) ? a : b;
+  return a.until >= b.until ? a : b;
 }
 
 /** Milliseconds left before another email may be requested (0 = allowed now). */
@@ -116,7 +182,7 @@ export function cooldownRemaining(lastAt: number | null | undefined, now = Date.
 export function verificationFailureMessage(code: string, detail = ""): string {
   switch (code) {
     case "auth/too-many-requests":
-      return "Firebase is temporarily refusing to send more emails for this account or network (too many requests). Resend is paused for 15 minutes here — please try once after that, not repeatedly.";
+      return "Firebase is temporarily refusing to send more emails for this account or network (too many requests). This is Firebase's abuse protection; it lifts on its own after a while.";
     case "auth/quota-exceeded":
       return "This project's daily email quota has been reached. Try again tomorrow.";
     case "auth/network-request-failed":

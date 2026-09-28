@@ -8,6 +8,8 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { AuthCard, FormMessage } from "@/components/account/auth-card";
 import { FieldError, PasswordInput } from "@/components/account/password-input";
 import { SetupNotice, useAccountSetup } from "@/components/account/setup-notice";
+import { GoogleSignIn, OrDivider } from "@/components/account/google-sign-in";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,7 +30,7 @@ function validate(email: string, password: string): Errors {
 }
 
 function LoginForm() {
-  const { status, signIn } = useAuth();
+  const { status, signIn, pendingGoogleLink, completePendingGoogleLink, cancelPendingGoogleLink } = useAuth();
   const setup = useAccountSetup();
   const router = useRouter();
   const params = useSearchParams();
@@ -40,8 +42,14 @@ function LoginForm() {
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
-    if (status === "signed-in" && !busy) router.replace(next);
-  }, [status, busy, next, router]);
+    // While a Google link is pending, stay here: the user must log in to the existing account.
+    if (status === "signed-in" && !busy && !pendingGoogleLink) router.replace(next);
+  }, [status, busy, next, router, pendingGoogleLink]);
+
+  // Coming from sign-up (or a redirect) with a pending Google link: prefill its email.
+  React.useEffect(() => {
+    if (pendingGoogleLink?.email) setEmail((e) => e || pendingGoogleLink.email || "");
+  }, [pendingGoogleLink]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -52,6 +60,19 @@ function LoginForm() {
     setBusy(true);
     try {
       await signIn(email, password);
+      if (pendingGoogleLink) {
+        // Google asked to be linked to this existing account: do it now that the owner signed in.
+        const linked = await completePendingGoogleLink();
+        if (linked.status === "linked") {
+          toast.success(
+            linked.emailVerified
+              ? "Google is now linked to your account, and Firebase confirms your email is verified."
+              : "Google is now linked to your account."
+          );
+        } else if (linked.status === "error") {
+          toast.error(linked.message);
+        }
+      }
       router.replace(next);
     } catch (err) {
       setFormError(firebaseErrorMessage(err));
@@ -75,8 +96,29 @@ function LoginForm() {
         </>
       }
     >
+      <div className="mb-4 space-y-4">
+        <GoogleSignIn
+          next={next}
+          disabled={!setup.ready}
+          showExistingAccountNote
+          onLinkRequired={(linkEmail) => linkEmail && setEmail(linkEmail)}
+        />
+        <OrDivider />
+      </div>
       <form onSubmit={onSubmit} className="space-y-4" noValidate aria-label="Log in">
         <SetupNotice problems={setup.problems} />
+        {pendingGoogleLink && (
+          <div role="status" className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-sm">
+            <p>
+              An AlgoVerse account already exists for{" "}
+              <span className="font-medium">{pendingGoogleLink.email ?? "this Google email"}</span>. Log in with its
+              password below and Google will be linked to that same account. Nothing is created or changed until you do.
+            </p>
+            <button type="button" className="text-xs font-medium text-primary hover:underline" onClick={cancelPendingGoogleLink}>
+              Don&apos;t link Google
+            </button>
+          </div>
+        )}
         {formError && <FormMessage tone="error">{formError}</FormMessage>}
         <div className="space-y-2">
           <Label htmlFor="email">Email</Label>

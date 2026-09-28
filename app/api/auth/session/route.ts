@@ -13,7 +13,7 @@ import {
   verifySessionValue,
 } from "@/lib/auth/server";
 import { SESSION_COOKIE, SESSION_MAX_AGE_SECONDS, type SessionUser } from "@/lib/auth/shared";
-import { ensureProfile } from "@/lib/account/profile";
+import { ensureProfile, recordSignInMethods } from "@/lib/account/profile";
 
 /**
  * Browser session management.
@@ -79,13 +79,21 @@ export async function POST(req: Request): Promise<Response> {
   // The profile document is created lazily; if Firestore isn't reachable yet (e.g. the database
   // hasn't been created in the console), signing in still works and it's retried next time.
   await ensureProfile(decoded.uid).catch((err) => logged("profile", err, new Response()));
+  const methods = await recordSignInMethods(decoded.uid).catch((err) => {
+    logged("sign-in methods", err, new Response());
+    return { passwordRemoved: false };
+  });
 
   const user = sessionUser({
     uid: decoded.uid,
     email: typeof decoded.email === "string" ? decoded.email : null,
     emailVerified: decoded.email_verified === true,
   });
-  return jsonResponse({ user }, 200, { "Set-Cookie": sessionCookieHeader(cookie) });
+  return jsonResponse(
+    { user: methods.passwordRemoved ? { ...user, notice: "password_removed" } : user },
+    200,
+    { "Set-Cookie": sessionCookieHeader(cookie) }
+  );
 }
 
 export async function DELETE(req: Request): Promise<Response> {
