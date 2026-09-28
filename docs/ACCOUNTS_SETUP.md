@@ -189,7 +189,7 @@ Sync is a Pro feature, enforced by the server (`/api/sync` checks the server-onl
 payments exist, use one of these:
 
 - **One account (works anywhere):** run locally, with `FIREBASE_SERVICE_ACCOUNT_KEY` in `.env.local`:
-  `node scripts/grant-pro.mjs --email you@example.com --days 30`
+  `node scripts/grant-pro.mjs --project algoverse-f5b48 --email you@example.com --days 30` (`--project` is required and must match the key; for Preview testing use a separate project, see [PREVIEW_TESTING.md](PREVIEW_TESTING.md))
   (`--revoke` undoes it). It writes only `entitlements/{uid}`.
 - **Everyone on Preview:** add `CLOUD_SYNC_PREVIEW_OPEN=1` to the Vercel **Preview** environment
   and redeploy. It's ignored on Production (`VERCEL_ENV=production`).

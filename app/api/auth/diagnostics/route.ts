@@ -5,6 +5,7 @@ import { PUBLIC_CONFIG_VARS, readPublicVars } from "@/lib/firebase/config";
 import { allowSetupDetails, deploymentInfo, vercelEnv } from "@/lib/firebase/deployment";
 import { getPublicConfigState, readRuntimePublicVars } from "@/lib/firebase/runtime-config";
 import { unexpectedFirebaseNames } from "@/scripts/firebase-env-report.mjs";
+import { globalDailyLimit } from "@/lib/ai/usage";
 
 /**
  * GET /api/auth/diagnostics — yes/no answers about this deployment's Firebase setup.
@@ -13,7 +14,9 @@ import { unexpectedFirebaseNames } from "@/scripts/firebase-env-report.mjs";
  * Available on every deployment. On Production it returns only the essentials
  * (browserSignInConfigured, adminCredentialState, missing variable names, SDK/Node support);
  * Preview and local development also get per-variable build/runtime detail, the branch/commit,
- * and any misspelled Firebase-like variable names.
+ * any misspelled Firebase-like variable names, the Firebase project id in use (public: it is in
+ * every page's web config anyway) and the AI whole-app daily cap — so a tester can confirm a
+ * Preview points at the Preview project, not Production (docs/PREVIEW_TESTING.md).
  *
  * Doesn't import firebase-admin statically, so it keeps answering when the SDK can't load.
  */
@@ -82,6 +85,11 @@ export async function GET(): Promise<Response> {
     deployment: deploymentInfo(),
     publicConfig,
     publicConfigSource: resolved.source,
+    // Which Firebase project this deployment uses; the service account must match it
+    // (adminCredentialState "project_mismatch" otherwise).
+    firebaseProjectId: resolved.config?.projectId ?? null,
+    aiGlobalDailyLimit: globalDailyLimit(),
+    hasGeminiKey: Boolean(process.env["GEMINI_API_KEY"]?.trim()),
     unrecognisedFirebaseVariableNames: unexpectedFirebaseNames(process.env),
   });
 }
