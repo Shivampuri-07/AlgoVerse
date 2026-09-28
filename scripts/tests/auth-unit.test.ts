@@ -359,3 +359,67 @@ test("jwks-rsa's signing-key code path works with the overridden jose (importJWK
   assert.equal(keys[0].kid, "k1");
   assert.match(keys[0].getPublicKey(), /BEGIN PUBLIC KEY/);
 });
+
+// ---------------------------------------------------------------- email verification requests
+
+const verification = await import("@/lib/auth/verification");
+const fakeUser = { uid: "u1", emailVerified: false } as unknown as import("firebase/auth").User;
+const fbError = (code: string, reason = "Error") => Object.assign(new Error(`Firebase: ${reason} (${code}).`), { code });
+
+test("verification email: a resolved Firebase request is reported as accepted (with the continue URL)", async () => {
+  const calls: unknown[] = [];
+  const out = await verification.requestVerificationEmail(fakeUser, "https://x.example/account?verified=1", async (_u, s) => {
+    calls.push(s);
+  });
+  assert.equal(out.ok, true);
+  assert.equal(out.ok && out.continueUrlUsed, true);
+  assert.deepEqual(calls, [{ url: "https://x.example/account?verified=1" }]);
+});
+
+test("verification email: unauthorised continue URL → sent again without it, and the reason is kept", async () => {
+  const calls: unknown[] = [];
+  const out = await verification.requestVerificationEmail(fakeUser, "https://preview.example/account", async (_u, s) => {
+    calls.push(s ?? null);
+    if (s) throw fbError("auth/unauthorized-continue-uri", "Domain not allowlisted by project");
+  });
+  assert.equal(out.ok, true);
+  assert.equal(out.ok && out.continueUrlUsed, false);
+  assert.equal(out.ok && out.fallbackCode, "auth/unauthorized-continue-uri");
+  assert.deepEqual(calls, [{ url: "https://preview.example/account" }, null]);
+});
+
+test("verification email: other Firebase errors are returned (not swallowed) and not retried", async () => {
+  let n = 0;
+  const out = await verification.requestVerificationEmail(fakeUser, "https://x.example/a", async () => {
+    n++;
+    throw fbError("auth/too-many-requests");
+  });
+  assert.equal(n, 1);
+  assert.equal(out.ok, false);
+  assert.equal(!out.ok && out.code, "auth/too-many-requests");
+  assert.match(verification.verificationFailureMessage("auth/too-many-requests"), /too many requests/i);
+});
+
+test("verification email: if the fallback also fails, that error is reported", async () => {
+  const out = await verification.requestVerificationEmail(fakeUser, "https://x.example/a", async (_u, s) => {
+    throw s ? fbError("auth/unauthorized-continue-uri") : fbError("auth/quota-exceeded", "Exceeded quota for email");
+  });
+  assert.equal(!out.ok && out.code, "auth/quota-exceeded");
+  assert.equal(!out.ok && out.detail, "Exceeded quota for email");
+});
+
+test("Firebase error info extracts code and server reason, without user data", () => {
+  assert.deepEqual(verification.firebaseErrorInfo(fbError("auth/unauthorized-continue-uri", "Domain not allowlisted by project")), {
+    code: "auth/unauthorized-continue-uri",
+    detail: "Domain not allowlisted by project",
+  });
+  assert.deepEqual(verification.firebaseErrorInfo(fbError("auth/network-request-failed")), { code: "auth/network-request-failed", detail: "" });
+  assert.equal(verification.firebaseErrorInfo(new Error("boom")).code, "unknown");
+});
+
+test("resend cooldown", () => {
+  const t = 1_000_000;
+  assert.equal(verification.cooldownRemaining(null, t), 0);
+  assert.equal(verification.cooldownRemaining(t, t + 1_000), verification.VERIFICATION_COOLDOWN_MS - 1_000);
+  assert.equal(verification.cooldownRemaining(t, t + verification.VERIFICATION_COOLDOWN_MS + 1), 0);
+});

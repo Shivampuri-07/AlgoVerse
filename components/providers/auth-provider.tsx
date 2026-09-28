@@ -11,7 +11,13 @@ import {
   fetchSession,
   loadAuth,
 } from "@/lib/auth/client";
-import type { SessionUser } from "@/lib/auth/shared";
+import type { AccountProfile, SessionUser } from "@/lib/auth/shared";
+import {
+  cooldownRemaining,
+  firebaseErrorInfo,
+  requestVerificationEmail,
+  type VerificationOutcome,
+} from "@/lib/auth/verification";
 
 /**
  * Account state for the whole app.
@@ -34,7 +40,15 @@ interface AuthContextValue {
   signUp: (email: string, password: string) => Promise<SessionUser>;
   signOut: (opts?: { everywhere?: boolean }) => Promise<void>;
   sendPasswordReset: (email: string) => Promise<void>;
-  resendVerification: () => Promise<void>;
+  /** Result of the latest verification-email request for the signed-in user (this browser). */
+  verification: VerificationOutcome | null;
+  /** Asks Firebase to send the verification email again. Honours the cooldown; never throws. */
+  resendVerification: () => Promise<VerificationOutcome>;
+  /**
+   * Re-reads the Firebase user and asks the SERVER (fresh Firebase Admin lookup) whether the
+   * email is verified. Only a `true` from Firebase marks the account verified.
+   */
+  checkVerification: () => Promise<boolean>;
   /** Re-reads the Firebase user (e.g. after clicking the verification link). */
   refresh: () => Promise<void>;
   setDisplayName: (name: string | null) => void;
@@ -63,16 +77,24 @@ async function sessionOrSignOut(auth: Auth, fbUser: User, prefix = ""): Promise<
   }
 }
 
-async function sendVerification(user: User) {
-  const { sendEmailVerification } = await import("firebase/auth");
+const LAST_SENT_KEY = "algoverse-verification-sent-at";
+
+/** When this browser last got a verification email accepted for `uid` (for the cooldown). */
+function readLastSent(uid: string): number | null {
   try {
-    await sendEmailVerification(user, { url: continueUrl("/account?verified=1") });
-  } catch (err) {
-    // The continue URL must be an authorised domain in the Firebase console; if it isn't,
-    // still send the email (Firebase's own confirmation page is used instead).
-    const code = (err as { code?: string }).code ?? "";
-    if (/continue-uri|unauthorized-domain/.test(code)) await sendEmailVerification(user);
-    else throw err;
+    const raw = window.localStorage.getItem(`${LAST_SENT_KEY}:${uid}`);
+    const at = raw ? Number(raw) : NaN;
+    return Number.isFinite(at) ? at : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLastSent(uid: string, at: number) {
+  try {
+    window.localStorage.setItem(`${LAST_SENT_KEY}:${uid}`, String(at));
+  } catch {
+    /* storage unavailable — the in-memory outcome still enforces the cooldown */
   }
 }
 
@@ -83,6 +105,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const load = React.useCallback(() => loadAuth(config, authEmulatorHost), [config, authEmulatorHost]);
   const [status, setStatus] = React.useState<AuthStatus>(configured ? "loading" : "unavailable");
   const [user, setUser] = React.useState<SessionUser | null>(null);
+  const [verification, setVerification] = React.useState<VerificationOutcome | null>(null);
+  const { details: diagnostics } = useFirebaseSetup();
+  const sendingRef = React.useRef<Promise<VerificationOutcome> | null>(null);
+
+  /**
+   * One verification-email request with safe diagnostics (non-production only): outcome,
+   * Firebase error code/reason, whether a user is present and already verified. Never the
+   * email address, tokens or the user object.
+   */
+  const sendVerificationEmail = React.useCallback(
+    async (fbUser: User): Promise<VerificationOutcome> => {
+      // One request at a time (double clicks, sign-up + resend racing).
+      if (sendingRef.current) return sendingRef.current;
+      const run = (async () => {
+        const outcome = await requestVerificationEmail(fbUser, continueUrl("/account?verified=1"));
+        if (outcome.ok) writeLastSent(fbUser.uid, outcome.at);
+        setVerification(outcome);
+        if (diagnostics) {
+          console.info("[auth] verification email request", {
+            result: outcome.ok ? "accepted by Firebase (sendOobCode 200)" : "rejected by Firebase",
+            code: outcome.ok ? outcome.fallbackCode ?? null : outcome.code,
+            reason: outcome.ok ? null : outcome.detail || null,
+            continueUrlUsed: outcome.ok ? outcome.continueUrlUsed : null,
+            userPresent: true,
+            emailVerified: fbUser.emailVerified,
+          });
+        }
+        return outcome;
+      })();
+      sendingRef.current = run;
+      try {
+        return await run;
+      } finally {
+        sendingRef.current = null;
+      }
+    },
+    [diagnostics]
+  );
 
   const applySignedIn = React.useCallback((u: SessionUser) => {
     setUser(u);
@@ -159,8 +219,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const auth = await load();
         const { createUserWithEmailAndPassword } = await import("firebase/auth");
         const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
-        // A failed verification email must not block the account; it can be resent from /account.
-        await sendVerification(cred.user).catch(() => {});
+        // A failed verification email doesn't block the account, but the outcome is kept and
+        // shown on /account (no silent failure); it can be resent from there.
+        await sendVerificationEmail(cred.user);
         const session = await sessionOrSignOut(
           auth,
           cred.user,
@@ -175,6 +236,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const auth = await load();
         const { signOut } = await import("firebase/auth");
         await signOut(auth);
+        setVerification(null);
         applySignedOut();
       },
       async sendPasswordReset(email) {
@@ -193,10 +255,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           throw err;
         }
       },
+      verification,
       async resendVerification() {
-        const auth = await load();
-        if (!auth.currentUser) throw new AccountError("For your security, please sign in again first.", "stale_sign_in");
-        await sendVerification(auth.currentUser);
+        let auth: Auth;
+        try {
+          auth = await load();
+        } catch (err) {
+          return { ok: false, at: Date.now(), ...firebaseErrorInfo(err) };
+        }
+        const current = auth.currentUser;
+        if (!current) {
+          return { ok: false, at: Date.now(), code: "app/no-current-user", detail: "" };
+        }
+        if (current.emailVerified) {
+          return { ok: false, at: Date.now(), code: "app/already-verified", detail: "" };
+        }
+        const last = Math.max(readLastSent(current.uid) ?? 0, verification?.ok ? verification.at : 0);
+        const wait = cooldownRemaining(last);
+        if (wait > 0) return { ok: false, at: Date.now(), code: "app/cooldown", detail: String(Math.ceil(wait / 1000)) };
+        return sendVerificationEmail(current);
+      },
+      async checkVerification() {
+        try {
+          const auth = await load();
+          const current = auth.currentUser;
+          if (current) {
+            await current.reload();
+            // Refresh the ID token so its email_verified claim is current too.
+            if (current.emailVerified) await current.getIdToken(true);
+          }
+        } catch {
+          /* fall through to the server check */
+        }
+        const res = await fetch("/api/account/profile", { cache: "no-store", credentials: "same-origin" });
+        if (!res.ok) return false;
+        const { profile } = (await res.json()) as { profile: AccountProfile };
+        setUser((u) => (u && u.uid === profile.uid ? { ...u, emailVerified: profile.emailVerified } : u));
+        return profile.emailVerified === true;
       },
       async refresh() {
         const auth = await load();
@@ -211,7 +306,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser((u) => (u ? { ...u, displayName: name } : u));
       },
     }),
-    [status, user, load, applySignedIn, applySignedOut]
+    [status, user, verification, load, sendVerificationEmail, applySignedIn, applySignedOut]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

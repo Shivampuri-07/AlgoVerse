@@ -316,3 +316,66 @@ test("forgot password sends a reset email (emulator) without revealing whether t
   await page.getByText(/If an account exists for nobody-here@example.com/).waitFor();
   await context.close();
 });
+
+// ------------------------------------------------------------------ email verification
+
+async function oobCodesFor(email) {
+  const res = await fetch(`${AUTH}/emulator/v1/projects/demo-algoverse/oobCodes`);
+  const { oobCodes = [] } = await res.json();
+  return oobCodes.filter((c) => c.email === email && c.requestType === "VERIFY_EMAIL");
+}
+
+test("email verification: sign-up requests it, resend is rate-limited, only Firebase's confirmation marks it verified", async () => {
+  const email = `verify-${Date.now()}@example.com`;
+  const { context, page } = await newPage(CONFIGURED);
+  const logs = [];
+  page.on("console", async (msg) => {
+    const args = await Promise.all(msg.args().map((a) => a.jsonValue().catch(() => null)));
+    logs.push(JSON.stringify(args));
+  });
+  await page.goto("/signup");
+  await page.waitForFunction(() => !document.querySelector('button[type="submit"]')?.disabled);
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password", { exact: true }).fill("letters123");
+  await page.getByLabel("Confirm password").fill("letters123");
+  await page.getByRole("button", { name: "Create account" }).click();
+  await page.waitForURL("**/account**");
+
+  // Sign-up made exactly one real VERIFY_EMAIL request for this user, and the page says so accurately.
+  assert.equal((await oobCodesFor(email)).length, 1, "one verification email requested at sign-up");
+  await page.getByText(/Firebase accepted the request at/).waitFor();
+  assert.ok(await page.getByText("Not verified").isVisible());
+  const diag = logs.filter((l) => l.includes("[auth] verification email request"));
+  assert.equal(diag.length, 1, "one safe diagnostic line");
+  assert.match(diag[0], /accepted by Firebase/);
+  assert.match(diag[0], /"userPresent":true/);
+  for (const l of logs) {
+    assert.ok(!l.includes(email) && !/eyJ[A-Za-z0-9_-]{10,}/.test(l), "no email address or token in console output");
+  }
+
+  // Resend is disabled during the cooldown (no duplicate rapid requests).
+  const resend = page.getByRole("button", { name: /Resend email/ });
+  assert.ok(await resend.isDisabled(), "resend disabled right after sending");
+  assert.match(await resend.innerText(), /\(\d+s\)/);
+  assert.equal((await oobCodesFor(email)).length, 1, "no extra request");
+
+  // Visiting the continue URL without actually verifying must NOT mark the account verified.
+  await page.goto("/account?verified=1");
+  await page.getByText(/doesn't show this email as confirmed yet/).waitFor();
+  assert.ok(await page.getByText("Not verified").isVisible());
+
+  // Complete the real verification with the emailed code, then come back: now Firebase confirms it.
+  const [code] = await oobCodesFor(email);
+  const applied = await fetch(`${AUTH}/identitytoolkit.googleapis.com/v1/accounts:update?key=demo-api-key`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ oobCode: code.oobCode }),
+  });
+  assert.equal(applied.status, 200, "emulator applied the verification code");
+  await page.goto("/account?verified=1");
+  await page.getByText("Verified", { exact: true }).waitFor();
+  assert.equal(await page.getByText("Confirm your email").count(), 0, "banner gone");
+  const profile = await page.evaluate(async () => (await fetch("/api/account/profile")).json());
+  assert.equal(profile.profile.emailVerified, true, "server (Firebase Admin) agrees");
+  await context.close();
+});

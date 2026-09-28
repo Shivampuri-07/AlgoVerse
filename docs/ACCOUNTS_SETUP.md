@@ -125,6 +125,34 @@ Vercel applies variable changes only to deployments created after the change.
 | "…belongs to a different Firebase project" | The key and `NEXT_PUBLIC_FIREBASE_PROJECT_ID` must both be `algoverse-f5b48` |
 | "Firestore has no database yet" | Step 4 |
 
+## Verification email doesn't arrive
+
+The account page shows what actually happened to the last request:
+
+- **"Firebase accepted the request at HH:MM"**: Firebase's `sendOobCode` call returned 200,
+  so the email was queued. Delivery happens afterwards on Firebase's mail servers and can't be
+  observed from the app. Check **Spam** and **Promotions** for a message from
+  `noreply@algoverse-f5b48.firebaseapp.com`.
+- **"The email was not sent: … (auth/…)"**: Firebase rejected the request, and the code says
+  why. For example, `auth/too-many-requests` means wait (sometimes up to an hour), and
+  `auth/unauthorized-continue-uri` means the preview domain isn't authorised (the email is then
+  sent again without the return link automatically).
+
+On Preview and local builds, the browser console also logs
+`[auth] verification email request` with the result and error code. It never logs the email
+address or any token.
+
+If requests are accepted but nothing arrives after about 10 minutes (including Spam):
+1. Firebase console → Authentication → **Templates → Email address verification**: the
+   template is enabled and the sender shows `noreply@algoverse-f5b48.firebaseapp.com`.
+2. Authentication → **Users**: the user exists and "Verified" is still unchecked.
+3. Authentication → **Usage**: the send count increases, which shows Firebase processed it.
+   The Spark plan allows 1,000 verification emails a day.
+4. Try a different mail provider (for example Outlook) to tell a Gmail filter apart from a
+   sending problem. If none of them receive it, open a Firebase support case with the time
+   of an accepted request. A custom SMTP sender (Templates → SMTP settings) is the next
+   option, but it needs your approval and an email provider.
+
 ## Local development without touching the real project
 ```bash
 npx -y firebase-tools@15.31.0 emulators:start --only auth,firestore --project demo-algoverse

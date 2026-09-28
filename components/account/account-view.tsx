@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, KeyRound, Loader2, LogOut, MailWarning, ShieldCheck, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useFirebaseSetup } from "@/components/providers/firebase-config-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { firebaseErrorMessage, patchProfile } from "@/lib/auth/client";
 import { DISPLAY_NAME_MAX_LENGTH, normalizeDisplayName, type AccountProfile } from "@/lib/auth/shared";
+import { cooldownRemaining, verificationFailureMessage, type VerificationOutcome } from "@/lib/auth/verification";
 
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
@@ -36,27 +38,64 @@ export function AccountView({
   initialProfile: AccountProfile;
   profileLoadFailed: boolean;
 }) {
-  const { user, status, signOut, resendVerification, refresh, sendPasswordReset, setDisplayName } = useAuth();
+  const { user, status, signOut, verification, resendVerification, checkVerification, sendPasswordReset, setDisplayName } =
+    useAuth();
+  const { config } = useFirebaseSetup();
   const router = useRouter();
   const params = useSearchParams();
   const [profile, setProfile] = React.useState(initialProfile);
   const [name, setName] = React.useState(initialProfile.displayName ?? "");
   const [savingName, setSavingName] = React.useState(false);
   const [sendingVerification, setSendingVerification] = React.useState(false);
+  const [checkingVerification, setCheckingVerification] = React.useState(false);
+  const now = useNow(1000);
   const [signOutAllOpen, setSignOutAllOpen] = React.useState(false);
   const [signingOut, setSigningOut] = React.useState(false);
 
   const emailVerified = profile.emailVerified || Boolean(user?.emailVerified);
 
-  // Welcome / verified banners from the sign-up and email-link redirects.
+  /** Only Firebase's answer (fresh server lookup) marks the email verified. */
+  const recheck = React.useCallback(
+    async (announce: boolean) => {
+      setCheckingVerification(true);
+      try {
+        const verified = await checkVerification();
+        if (verified) {
+          setProfile((p) => ({ ...p, emailVerified: true }));
+          if (announce) toast.success("Email confirmed.");
+        } else if (announce) {
+          toast.message("Firebase doesn't show this email as confirmed yet. Open the link in the email, then try again.");
+        }
+        return verified;
+      } finally {
+        setCheckingVerification(false);
+      }
+    },
+    [checkVerification]
+  );
+
+  // Arriving from the verification link (continue URL /account?verified=1): ask Firebase, don't assume.
   React.useEffect(() => {
-    if (params.get("welcome") === "1") {
-      toast.success("Account created. Check your inbox to confirm your email.");
-    }
-    if (params.get("verified") === "1") {
-      void refresh().then(() => setProfile((p) => ({ ...p, emailVerified: true })));
-    }
-  }, [params, refresh]);
+    if (params.get("welcome") === "1") toast.success("Account created.");
+    if (params.get("verified") === "1") void recheck(true);
+  }, [params, recheck]);
+
+  // Coming back to this tab after clicking the link in another tab/app: re-check quietly.
+  React.useEffect(() => {
+    if (emailVerified) return;
+    let last = 0;
+    const onVisible = () => {
+      if (document.visibilityState !== "visible" || Date.now() - last < 10_000) return;
+      last = Date.now();
+      void recheck(false);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [emailVerified, recheck]);
 
   // Once this browser is signed out (the menu's Log out, or another tab), leave the protected
   // page for the dashboard.
@@ -86,25 +125,19 @@ export function AccountView({
   }
 
   async function onResendVerification() {
+    if (sendingVerification) return;
     setSendingVerification(true);
     try {
-      await resendVerification();
-      toast.success(`Verification email sent to ${profile.email}.`);
-    } catch (err) {
-      toast.error(firebaseErrorMessage(err));
+      const outcome = await resendVerification();
+      if (outcome.ok) {
+        toast.success("Firebase accepted the request. The email usually arrives within a few minutes.");
+      } else if (outcome.code === "app/already-verified") {
+        await recheck(true);
+      } else {
+        toast.error(outcomeText(outcome));
+      }
     } finally {
       setSendingVerification(false);
-    }
-  }
-
-  async function onCheckVerification() {
-    await refresh();
-    const res = await fetch("/api/account/profile", { cache: "no-store" });
-    if (res.ok) {
-      const { profile: fresh } = (await res.json()) as { profile: AccountProfile };
-      setProfile(fresh);
-      if (fresh.emailVerified) toast.success("Email confirmed.");
-      else toast.message("Not confirmed yet. Open the link in the email we sent you.");
     }
   }
 
@@ -131,6 +164,7 @@ export function AccountView({
   }
 
   const memberSince = formatDate(profile.createdAt);
+  const cooldown = verification?.ok ? cooldownRemaining(verification.at, now) : 0;
 
   return (
     <div className="max-w-2xl space-y-6 pb-10">
@@ -152,18 +186,27 @@ export function AccountView({
               <MailWarning className="h-4 w-4 text-warning" /> Confirm your email
             </CardTitle>
             <CardDescription>
-              We sent a confirmation link to <span className="font-medium text-foreground">{profile.email}</span>.
-              Confirming it lets you recover your account, and it will be needed for AI features.
+              Confirm <span className="font-medium text-foreground">{profile.email}</span> using the link Firebase
+              emails you. Confirming it lets you recover your account, and it will be needed for AI features.
             </CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={onResendVerification} disabled={sendingVerification}>
-              {sendingVerification && <Loader2 className="h-4 w-4 animate-spin" />}
-              Resend email
-            </Button>
-            <Button variant="ghost" onClick={onCheckVerification}>
-              I&apos;ve confirmed it
-            </Button>
+          <CardContent className="space-y-3">
+            <VerificationStatus outcome={verification} now={now} projectId={config?.projectId ?? null} />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                onClick={onResendVerification}
+                disabled={sendingVerification || cooldown > 0}
+                aria-describedby="verification-status"
+              >
+                {sendingVerification && <Loader2 className="h-4 w-4 animate-spin" />}
+                {cooldown > 0 ? `Resend email (${Math.ceil(cooldown / 1000)}s)` : "Resend email"}
+              </Button>
+              <Button variant="ghost" onClick={() => void recheck(true)} disabled={checkingVerification}>
+                {checkingVerification && <Loader2 className="h-4 w-4 animate-spin" />}
+                I&apos;ve confirmed it
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -280,5 +323,65 @@ export function AccountView({
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** Re-renders every `intervalMs` (for the resend countdown). */
+function useNow(intervalMs: number): number {
+  const [now, setNow] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), intervalMs);
+    return () => window.clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
+
+function outcomeText(outcome: Extract<VerificationOutcome, { ok: false }>): string {
+  switch (outcome.code) {
+    case "app/cooldown":
+      return `Please wait ${outcome.detail}s before requesting another email.`;
+    case "app/no-current-user":
+      return "Your sign-in on this device has expired. Log out, log in again, then resend the email.";
+    default:
+      return `${verificationFailureMessage(outcome.code, outcome.detail)} (${outcome.code})`;
+  }
+}
+
+/**
+ * What actually happened to the last request. "Accepted" means Firebase's server took the
+ * request (HTTP 200) — delivery to the inbox happens afterwards and can't be observed from here.
+ */
+function VerificationStatus({
+  outcome,
+  now,
+  projectId,
+}: {
+  outcome: VerificationOutcome | null;
+  now: number;
+  projectId: string | null;
+}) {
+  if (!outcome) return null;
+  const time = new Date(outcome.at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  const minutes = Math.floor((now - outcome.at) / 60_000);
+  if (outcome.ok) {
+    return (
+      <div id="verification-status" role="status" className="space-y-1 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
+        <p>
+          <span className="font-medium">Firebase accepted the request at {time}.</span>{" "}
+          <span className="text-muted-foreground">That means the email was queued, not that it has arrived.</span>
+        </p>
+        <p className="text-muted-foreground">
+          Look for a message from{" "}
+          <span className="font-medium text-foreground">noreply@{projectId ?? "your-project"}.firebaseapp.com</span>, including
+          Spam and Promotions.{minutes >= 10 ? " If it still hasn't arrived after 10 minutes, check the Firebase console (see the setup guide)." : ""}
+        </p>
+      </div>
+    );
+  }
+  if (outcome.code === "app/cooldown" || outcome.code === "app/already-verified") return null;
+  return (
+    <p id="verification-status" role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+      The email was not sent: {outcomeText(outcome)}
+    </p>
   );
 }
