@@ -219,9 +219,12 @@ local-only. Signing in never changes the progress stored on the device. Setup:
 have a **Learning resources** section. Everyone can see whether a video or article exists (and
 the video's title). Pro users get **Watch on YouTube** and **Read article** links from
 `GET /api/resources/[id]`, which checks the session and the server-side entitlement. The links
-are never in the page data or the browser bundle (`npm run check:secrets` verifies this). There
-is no embedded player: videos open on YouTube (owner decision; YouTube API policy III.F.3
-forbids charging to watch in an embedded player). The explanation videos are from Striver's
+are never in the page data or the browser bundle (`npm run check:secrets` verifies this). Pro
+users can **Watch in AlgoVerse** (the official YouTube player in a modal on the problem page,
+with no autoplay and YouTube's own controls, branding and ads) or **Watch on YouTube**. This
+was the owner's decision, made accepting the YouTube API policy III.F.3 risk (see
+docs/SAAS_ARCHITECTURE.md). Videos whose owner disabled embedding show a message with the
+YouTube link. The explanation videos are from Striver's
 channel [take U forward](https://www.youtube.com/@takeUforward). AlgoVerse isn't affiliated
 with Take U Forward.
 
@@ -234,7 +237,8 @@ with Take U Forward.
 - **Where the data lives.** Video ids: `data/striverVideos.ts` (server-only). The browser only
   gets `data/videoIndex.ts` (which problems have a video, and its title). Article URLs:
   `data/articles.ts` (server-only). The public dataset only records `article: { source }`.
-- **Privacy.** Nothing is loaded from YouTube inside AlgoVerse.
+- **Privacy.** Nothing is loaded from YouTube until a Pro user presses **Watch in AlgoVerse**.
+  The player then uses the privacy-enhanced `youtube-nocookie.com` host.
 - Lecture videos that cover several problems open at the right timestamp.
 - Problems with a video show a small **Video** badge in the problem lists.
 

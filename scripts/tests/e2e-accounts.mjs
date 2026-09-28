@@ -25,7 +25,10 @@ let browser;
 
 function startServer(port, distDir, env) {
   const child = spawn("npx", ["next", "start", "-p", String(port)], {
-    env: { ...env, NEXT_DIST_DIR: distDir, PORT: String(port) },
+    // FIREBASE_SERVICE_ACCOUNT_KEY is set (empty) explicitly: Next.js never overrides an existing
+    // variable with .env.local, so test servers can't pick up a real credential from it and can
+    // never talk to the real Firebase project.
+    env: { ...env, FIREBASE_SERVICE_ACCOUNT_KEY: "", NEXT_DIST_DIR: distDir, PORT: String(port) },
     stdio: "ignore",
   });
   servers.push(child);
@@ -1120,5 +1123,137 @@ test("Pro user gets the video (on YouTube) and article links; after Pro expires 
   await page.getByTestId("locked-video").waitFor();
   assert.equal(await page.getByTestId("watch-video").count(), 0);
   assert.ok((await storeOf(page)).completed["6"], "local progress kept after Pro expired");
+  await context.close();
+});
+
+// ------------------------------------------------------------------ Pro in-app video player
+
+/**
+ * Stand-in for YouTube's official IFrame Player API (same contract: YT.Player, onReady, onError),
+ * so the tests never contact YouTube. window.__ytMode = "error150" simulates a creator who has
+ * disabled embedding.
+ */
+const FAKE_YT_API = `
+window.YT = { Player: function (el, opts) {
+  var f = document.createElement("iframe");
+  var p = new URLSearchParams();
+  Object.keys(opts.playerVars || {}).forEach(function (k) { p.set(k, String(opts.playerVars[k])); });
+  f.src = opts.host + "/embed/" + opts.videoId + "?" + p.toString();
+  el.replaceWith(f);
+  var player = { destroy: function () { f.remove(); }, getIframe: function () { return f; } };
+  setTimeout(function () {
+    if (window.__ytMode === "error150") opts.events.onError({ data: 150, target: player });
+    else opts.events.onReady({ target: player });
+  }, 50);
+  return player;
+} };
+setTimeout(function () { if (window.onYouTubeIframeAPIReady) window.onYouTubeIframeAPIReady(); }, 0);
+`;
+
+async function mockYouTube(context, { apiFails = false } = {}) {
+  await context.route("https://www.youtube.com/iframe_api", (route) =>
+    apiFails ? route.abort() : route.fulfill({ status: 200, contentType: "text/javascript", body: FAKE_YT_API })
+  );
+  await context.route(/^https:\/\/(www\.)?(youtube-nocookie|youtube)\.com\/embed\//, (route) =>
+    route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>player</body></html>" })
+  );
+}
+
+async function proOnProblem6(context, page) {
+  await signUpInUi(page, `player-${Date.now()}-${Math.random().toString(36).slice(2, 6)}@example.com`);
+  await grantProInEmulator((await profileOf(page)).uid);
+  await page.goto("/problems/6");
+  await page.getByTestId("watch-in-app").waitFor();
+}
+
+test("Pro: Watch in AlgoVerse plays the authorised video in the official player; Watch on YouTube unchanged; closing keeps the page state", async () => {
+  const { context, page } = await newPage(CONFIGURED);
+  await mockYouTube(context);
+  await proOnProblem6(context, page);
+  const api = await page.evaluate(async () => (await fetch("/api/resources/6")).json());
+  assert.match(await page.getByTestId("watch-video").getAttribute("href"), /^https:\/\/www\.youtube\.com\/watch\?v=/, "external link as before");
+  assert.equal(await page.getByTestId("watch-video").getAttribute("target"), "_blank");
+  assert.equal(await page.locator("iframe").count(), 0, "nothing loads until the viewer chooses to watch");
+
+  // Some page state that must survive opening/closing the player.
+  await page.getByRole("button", { name: "Mark Completed" }).click();
+  await page.locator("#notes").fill("notes before watching");
+  await page.waitForTimeout(700);
+
+  await page.getByTestId("watch-in-app").click();
+  const dialog = page.getByTestId("video-player-dialog");
+  await dialog.waitFor();
+  assert.match(await dialog.innerText(), new RegExp(api.video.title.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  const frame = dialog.locator("iframe");
+  await frame.waitFor();
+  const src = await frame.getAttribute("src");
+  assert.ok(src.startsWith(`https://www.youtube-nocookie.com/embed/${api.video.embed.videoId}?`), "official embed, id from the authorised API");
+  assert.doesNotMatch(src, /autoplay=1/, "no autoplay");
+  await page.waitForFunction(() => /Striver's video explanation/.test(document.querySelector('[data-testid="player-container"] iframe')?.title ?? ""));
+  assert.equal(await frame.getAttribute("allowfullscreen"), "", "fullscreen allowed");
+  assert.equal(await page.getByTestId("player-message").count(), 0);
+
+  // Back to problem: dialog gone, player destroyed, focus returned, state intact.
+  await page.getByTestId("close-player").click();
+  await dialog.waitFor({ state: "detached" });
+  assert.equal(await page.locator("iframe").count(), 0, "player removed (no hidden playback)");
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-testid")), "watch-in-app", "focus restored");
+  assert.ok(page.url().endsWith("/problems/6"));
+  assert.equal(await page.locator("#notes").inputValue(), "notes before watching");
+  const store = await storeOf(page);
+  assert.ok(store.completed["6"] && store.notes["6"] === "notes before watching");
+
+  // Escape closes it too.
+  await page.getByTestId("watch-in-app").click();
+  await dialog.locator("iframe").waitFor();
+  await page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "detached" });
+  // Article still works as before.
+  assert.match(await page.getByTestId("read-article").getAttribute("href"), /^https:\/\/takeuforward\.org\//);
+  await context.close();
+});
+
+test("Pro: a video whose owner disabled embedding (player error 150) shows a friendly message and the YouTube link", async () => {
+  const { context, page } = await newPage(CONFIGURED);
+  await mockYouTube(context);
+  await proOnProblem6(context, page);
+  await page.evaluate(() => (window.__ytMode = "error150"));
+  await page.getByTestId("watch-in-app").click();
+  const msg = page.getByTestId("player-message");
+  await msg.waitFor();
+  assert.match(await msg.innerText(), /owner allows it to be watched on YouTube only/);
+  assert.match(await msg.getByRole("link", { name: /Watch on YouTube/ }).getAttribute("href"), /youtube\.com\/watch\?v=/);
+  await context.close();
+});
+
+test("Pro: if the YouTube player can't load, a message offers the YouTube link", async () => {
+  const { context, page } = await newPage(CONFIGURED);
+  await mockYouTube(context, { apiFails: true });
+  await proOnProblem6(context, page);
+  await page.getByTestId("watch-in-app").click();
+  await page.getByTestId("player-message").waitFor();
+  assert.match(await page.getByTestId("player-message").innerText(), /didn't load/);
+  await context.close();
+});
+
+test("Free: no in-app player, no id anywhere; the locked video still opens the upgrade dialog", async () => {
+  const { context, page } = await newPage(CONFIGURED);
+  let playerApiRequested = false;
+  await context.route("https://www.youtube.com/iframe_api", (route) => {
+    playerApiRequested = true;
+    return route.abort();
+  });
+  await signUpInUi(page, `player-free-${Date.now()}@example.com`);
+  await page.goto("/problems/6");
+  await page.getByTestId("locked-video").waitFor();
+  assert.equal(await page.getByTestId("watch-in-app").count(), 0);
+  await page.getByTestId("locked-video").click();
+  await page.getByRole("dialog").waitFor();
+  assert.match(await page.getByRole("dialog").innerText(), /All 455 DSA problems are free\. Pro unlocks articles, videos, and cloud sync\./);
+  assert.equal(await page.locator("iframe").count(), 0);
+  assert.deepEqual(await proLinksIn(await page.content()), []);
+  const body = await page.evaluate(async () => (await fetch("/api/resources/6")).text());
+  assert.ok(!/embed|videoId|youtube/i.test(body), "API gives Free users no video data");
+  assert.equal(playerApiRequested, false, "the YouTube player API is never even loaded for Free users");
   await context.close();
 });

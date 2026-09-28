@@ -153,3 +153,17 @@ test("Pro resources lookup: video watch link and article for a problem; none for
   assert.deepEqual(Object.keys(ARTICLES).map(Number).sort((a, b) => a - b), flagged);
   assert.ok(a2zProblems.every((p) => !(p.article && "url" in p.article)), "no article URL left in the public dataset");
 });
+
+test("Pro resources include the in-app embed info; the external watch link is unchanged", async () => {
+  const { getLearningResources } = await import("@/lib/resources");
+  const r = getLearningResources(6)!;
+  const v = STRIVER_VIDEOS[6];
+  assert.equal(r.video!.embed.videoId, v.videoId);
+  assert.equal(r.video!.embed.embeddable, v.embeddable !== false);
+  assert.equal(r.video!.embed.start, v.start && v.start > 0 ? v.start : null);
+  assert.equal(r.video!.watchUrl, videos.youtubeWatchUrl(v), "Watch on YouTube link exactly as before");
+  const { isEmbeddingBlocked } = await import("@/lib/youtube-player");
+  assert.equal(isEmbeddingBlocked(150), true);
+  assert.equal(isEmbeddingBlocked(101), true);
+  assert.equal(isEmbeddingBlocked(100), false);
+});

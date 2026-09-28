@@ -1,9 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { BookOpen, ExternalLink, Loader2, Lock, Sparkles, Youtube } from "lucide-react";
+import { BookOpen, ExternalLink, Loader2, Lock, PlayCircle, Sparkles, Youtube } from "lucide-react";
 import { useSyncSetup } from "@/components/sync/sync-provider";
 import { UpgradeDialog } from "@/components/billing/upgrade-dialog";
+import { VideoPlayerDialog, type PlayableVideo } from "@/components/problems/video-player-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { striverVideoTitle } from "@/lib/video-index";
@@ -11,7 +12,7 @@ import type { Problem } from "@/lib/types";
 
 /** Shape returned by GET /api/resources/[id] (lib/resources.ts). */
 interface LearningResources {
-  video: { title: string; watchUrl: string; startsAt: string | null } | null;
+  video: PlayableVideo | null;
   article: { url: string; source: string } | null;
 }
 
@@ -22,7 +23,9 @@ type LoadState = { kind: "idle" } | { kind: "loading" } | { kind: "ready"; data:
  * Both are Pro. The links never ship to the browser in the page data: Pro users get them from
  * GET /api/resources/[id], which checks the session and the server-side entitlement. Everyone
  * can see that a resource exists (and the video's title); Free users get an upgrade prompt.
- * No embedded YouTube player: videos open on YouTube (owner decision; YouTube policy III.F.3).
+ * Pro users can watch in AlgoVerse (official YouTube player in a modal, id from the authorised API)
+ * or on YouTube (unchanged external link). Owner decision 2026-09-28, accepting YouTube API
+ * policy III.F.3 risk — see docs/SAAS_ARCHITECTURE.md.
  * The problem itself, its practice links, progress and notes stay free.
  */
 export function StriverVideo({ problem }: { problem: Pick<Problem, "id" | "title" | "article"> }) {
@@ -33,6 +36,8 @@ export function StriverVideo({ problem }: { problem: Pick<Problem, "id" | "title
   const [state, setState] = React.useState<LoadState>({ kind: "idle" });
   const [upgradeOpen, setUpgradeOpen] = React.useState(false);
   const [upgradeReason, setUpgradeReason] = React.useState("");
+  const [playerOpen, setPlayerOpen] = React.useState(false);
+  const watchInAppRef = React.useRef<HTMLButtonElement>(null);
   const headingId = `learning-resources-${problem.id}`;
 
   React.useEffect(() => {
@@ -88,18 +93,24 @@ export function StriverVideo({ problem }: { problem: Pick<Problem, "id" | "title
                   </p>
                 </div>
                 {unlocked && state.kind === "ready" && state.data.video ? (
-                  <Button asChild size="sm" className="shrink-0">
-                    <a
-                      href={state.data.video.watchUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label={`Watch Striver's explanation of ${problem.title} on YouTube (opens in new tab)`}
-                      data-testid="watch-video"
-                    >
-                      Watch on YouTube
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </a>
-                  </Button>
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <Button ref={watchInAppRef} size="sm" onClick={() => setPlayerOpen(true)} data-testid="watch-in-app">
+                      <PlayCircle className="h-4 w-4" />
+                      Watch in AlgoVerse
+                    </Button>
+                    <Button asChild size="sm" variant="outline">
+                      <a
+                        href={state.data.video.watchUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label={`Watch Striver's explanation of ${problem.title} on YouTube (opens in new tab)`}
+                        data-testid="watch-video"
+                      >
+                        Watch on YouTube
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                    </Button>
+                  </div>
                 ) : unlocked && state.kind === "loading" ? (
                   <Button size="sm" disabled className="shrink-0">
                     <Loader2 className="h-4 w-4 animate-spin" /> Loading
@@ -159,6 +170,15 @@ export function StriverVideo({ problem }: { problem: Pick<Problem, "id" | "title
         )}
       </CardContent>
       <UpgradeDialog open={upgradeOpen} onOpenChange={setUpgradeOpen} reason={upgradeReason} />
+      {unlocked && state.kind === "ready" && state.data.video && (
+        <VideoPlayerDialog
+          open={playerOpen}
+          onOpenChange={setPlayerOpen}
+          problemTitle={problem.title}
+          video={state.data.video}
+          returnFocusRef={watchInAppRef}
+        />
+      )}
     </Card>
   );
 }

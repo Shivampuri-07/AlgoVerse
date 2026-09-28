@@ -380,6 +380,8 @@ test("resources: signed-out 401, Free 403 (no links in the body), Pro 200, expir
   assert.equal(pro.status, 200);
   const body = await pro.json();
   assert.match(body.video.watchUrl, /^https:\/\/www\.youtube\.com\/watch\?v=/);
+  assert.match(body.video.embed.videoId, /^[A-Za-z0-9_-]{11}$/, "Pro gets the id for the in-app player");
+  assert.ok(body.video.watchUrl.includes(body.video.embed.videoId));
   assert.match(body.article.url, /^https:\/\/takeuforward\.org\//);
   assert.equal((await getResources("abc", a.cookie)).status, 400);
   assert.equal((await getResources("999999", a.cookie)).status, 404);

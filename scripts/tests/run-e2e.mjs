@@ -15,7 +15,8 @@ const DEMO_PUBLIC = {
 const NO_FIREBASE = Object.fromEntries(Object.keys(DEMO_PUBLIC).map((k) => [k, ""]));
 
 function run(cmd, args, env) {
-  const r = spawnSync(cmd, args, { stdio: "inherit", env: { ...process.env, ...env } });
+  // Never let a real credential from .env.local into test builds/runs (see e2e-accounts.mjs).
+  const r = spawnSync(cmd, args, { stdio: "inherit", env: { ...process.env, FIREBASE_SERVICE_ACCOUNT_KEY: "", ...env } });
   if (r.status !== 0) process.exit(r.status ?? 1);
 }
 
