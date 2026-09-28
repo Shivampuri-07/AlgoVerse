@@ -45,7 +45,11 @@ npm run start          # run the production build
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
 npm run validate:data  # dataset report + integrity checks (scripts/validate-a2z-data.ts, Node >= 22.6)
-npm test               # all tests: AI route (mocked Gemini, no key needed), service worker, videos
+npm test               # all unit tests: AI route (mocked Gemini, no key needed), service worker, videos,
+                       # auth, cloud sync (merge rules, size-bounded batches), billing readiness
+npm run test:firebase  # Firestore rules + auth/sync/resources APIs on the Firebase emulators (Java 21+)
+npm run test:e2e       # browser tests (system Chrome) against production builds on the emulators
+npm run check:secrets  # after a build: no secrets or Pro-only links in what browsers download
 npm run test:ai        # AI route tests only (Node >= 22.6)
 npm run test:sw        # service worker tests only
 npm run test:videos    # Striver video mapping tests only (Node >= 22.6)

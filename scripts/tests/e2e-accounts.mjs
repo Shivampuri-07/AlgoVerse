@@ -1063,6 +1063,14 @@ test("all 455 problems are free: every problem page opens for a signed-out visit
   }
   assert.equal(ok, 455, "every problem page renders for free");
   assert.deepEqual(leaks, [], "no article URL or video id in any problem page");
+  // Pages that list problems (home, problem list, bookmarks, every topic) carry no Pro links either.
+  const { TOPICS } = await import("../../data/topics.ts");
+  const listPages = ["/", "/problems", "/bookmarks", "/pricing", ...TOPICS.map((t) => `/topics/${t.id}`)];
+  for (const path of listPages) {
+    const res = await fetch(`${CONFIGURED}${path}`);
+    assert.equal(res.status, 200, path);
+    assert.deepEqual(await proLinksIn(await res.text()), [], `no Pro links in ${path}`);
+  }
 });
 
 test("Free user: video and article are locked (upgrade dialog, no player, no links); free features still work", async () => {
@@ -1165,6 +1173,23 @@ async function proOnProblem6(context, page) {
   await page.goto("/problems/6");
   await page.getByTestId("watch-in-app").waitFor();
 }
+
+test("Pro on a phone (390px): the player and its buttons fit on screen (long titles truncate)", async () => {
+  const { context, page } = await newPage(CONFIGURED, { width: 390, height: 844 });
+  await mockYouTube(context);
+  await proOnProblem6(context, page);
+  await page.getByTestId("watch-in-app").click();
+  const dialog = page.getByTestId("video-player-dialog");
+  await dialog.locator("iframe").waitFor();
+  // Measure once the open animation (zoom/translate) has finished.
+  await page.waitForFunction(() => document.querySelector('[data-testid="video-player-dialog"]')?.getAnimations().every((a) => a.playState === "finished"));
+  const widest = await page.evaluate(() =>
+    Math.max(...[...document.querySelectorAll('[data-testid="video-player-dialog"], [data-testid="video-player-dialog"] *')].map((e) => e.getBoundingClientRect().right))
+  );
+  assert.ok(widest <= 390, `dialog content ends at ${Math.round(widest)}px on a 390px screen`);
+  assert.ok(await page.getByTestId("close-player").isVisible());
+  await context.close();
+});
 
 test("Pro: Watch in AlgoVerse plays the authorised video in the official player; Watch on YouTube unchanged; closing keeps the page state", async () => {
   const { context, page } = await newPage(CONFIGURED);

@@ -109,7 +109,7 @@ export const FEATURE_MATRIX: FeatureRow[] = [
   {
     id: "articles",
     label: "Articles and written learning content",
-    description: "Links to verified explanation articles for each problem.",
+    description: "Links to verified explanation articles, where one exists for a problem.",
     free: false,
     pro: true,
     availability: "available",
@@ -117,7 +117,7 @@ export const FEATURE_MATRIX: FeatureRow[] = [
   {
     id: "videos",
     label: "Striver videos and video explanations",
-    description: "Links to Striver's video explanation for each problem, opening on YouTube.",
+    description: "Striver's video explanation, where one exists — watch in AlgoVerse or on YouTube.",
     free: false,
     pro: true,
     availability: "available",

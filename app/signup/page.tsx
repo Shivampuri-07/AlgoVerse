@@ -93,7 +93,7 @@ function SignupForm() {
   return (
     <AuthCard
       title="Create your account"
-      description="Free to join. The roadmap, videos and progress tracking keep working with or without an account."
+      description="Free to join. All 455 problems and progress tracking keep working with or without an account."
       footer={
         <>
           Already have an account?{" "}

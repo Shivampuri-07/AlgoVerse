@@ -12,7 +12,7 @@ Nothing here is legal, tax or financial advice. See `docs/SAAS_ARCHITECTURE.md` 
 - [ ] [You] Business name, support email, and contact address shown on the site (fill the placeholders in the policy pages)
 - [ ] [You] Decide on a custom domain (recommended for trust and payment-provider review)
 
-## 2. Payment provider (Razorpay recommended, pending approval)
+## 2. Payment provider (Razorpay, ₹30/month — technical plan in [BILLING.md](BILLING.md))
 - [ ] [You] Create the account yourself on razorpay.com. Never share keys in chat.
 - [ ] [You] KYC: PAN, Aadhaar (for individuals), and a bank account in the seller's name. Razorpay says verification typically takes 1-3 business days.
 - [ ] [You] Ask Razorpay to enable **Subscriptions** (and UPI AutoPay / eMandate). Get a quote for subscription pricing on UPI and eMandate ("on request" on their pricing page).

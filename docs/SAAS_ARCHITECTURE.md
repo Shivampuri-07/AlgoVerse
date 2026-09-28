@@ -22,8 +22,18 @@ Nothing in this document is legal, tax or financial advice.
 | Phase | Status |
 |---|---|
 | 1. Accounts | Done: email/password, verification (fixed-expiry escalating pause), Google Sign-In + linking, server sessions, account page. Tested on the emulators; Google linking confirmed by the owner on a Preview deployment. |
-| 2. Cloud sync (Pro) | Done: outbox + change journal, server merge with §5 conflict rules (Firestore transactions), first-login import dialog, other-account switch with local backup, status indicator + account card, sync-aware reset/import, **theme preference sync (last write wins)**, **notes over 50,000 characters kept on the device and listed, never blocking other sync; two versions too long to merge are never truncated (each device keeps its own until the user picks one)**. Two-device, offline, theme and long-note browser tests (emulators). Not yet exercised on the real project. |
+| 2. Cloud sync (Pro) | Done: outbox + change journal, server merge with §5 conflict rules (Firestore transactions), first-login import dialog, other-account switch with local backup, status indicator + account card, sync-aware reset/import, **theme preference sync (last write wins)**, **notes over 50,000 characters kept on the device and listed, never blocking other sync; two versions too long to merge are never truncated (each device keeps its own until the user picks one)**. Two-device, offline, theme and long-note browser tests (emulators). **Payload sizes bounded (2026-09-28): uploads ≤ 1.5 MB per request, server transactions ≤ 4 MB, notes pulled in ≤ 2 MB pages with a value cursor — accounts with many long notes stay under Vercel's 4.5 MB body limit** (emulator test with ~10 MB of notes). Not yet exercised on the real project. |
 | 3. Plans & entitlements | Done: `lib/plans.ts` (APPROVED matrix, ₹30/month monthly, `learningResources` + `cloudSync` Pro features), `lib/entitlements.ts`, `/api/me/entitlements`, `/api/resources/[id]` (Pro articles/videos), `/pricing`, upgrade dialog, `/account/billing` (plan from the server, no real payments), account plan card, nav links. Payments remain Phase 4. |
+| 4. Payments (Razorpay) | **Not live — readiness only.** Pure, tested core: payments gate (`lib/billing/config.ts`: off unless approved in code, test mode, test key, not Production; live mode needs a code change), webhook signature check, subscription → entitlement rules with out-of-order/duplicate handling. No routes, no keys. Plan: [BILLING.md](BILLING.md). |
+| 5. AI helper login | Not started. `/api/ai` is still open to signed-out visitors (per-instance IP rate limit only) — the approved plan is login-required. |
+
+### Known risks (audit 2026-09-28)
+
+- **YouTube policy:** the Pro in-app player conflicts with YouTube API Services policy III.F.3.a (no charging to watch in an embedded player). Owner's decision; must be resolved before charging.
+- **Third-party content:** Pro sells access to TakeUForward/Striver links. Permission or a different Pro offer is needed before charging.
+- **Hosting:** Vercel Hobby forbids commercial use.
+- **`/api/ai`** has no login yet (Phase 5) and its rate limit is in memory per server instance.
+- **Pro-link leak checks:** pages are rendered on demand, so the build-time scan (`check:secrets`, now also covering prerendered HTML/RSC) is backed by an e2e check that fetches every problem, topic and list page as a signed-out visitor.
 
 ### Firestore layout (replaces section 4 for implementation)
 

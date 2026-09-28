@@ -1,5 +1,6 @@
 // Fails if a server-only secret (or the Admin SDK itself) ended up in the browser bundle.
-// Scans every file under <distDir>/static — what browsers download — for:
+// Scans what browsers download — every file under <distDir>/static, plus the prerendered pages
+// and RSC payloads under <distDir>/server/app (*.html, *.rsc, *.body; not server code) — for:
 //   - the actual values of server secrets from the environment / .env.local (never printed)
 //   - private-key / service-account markers and the Admin SDK
 // Run after `npm run build`: npm run check:secrets
@@ -65,10 +66,15 @@ function* walk(dir) {
   }
 }
 
+function* browserFiles() {
+  for (const file of walk(staticDir)) if (/\.(js|css|html|json|map|txt)$/.test(file)) yield file;
+  const prerendered = join(distDir, "server", "app");
+  if (existsSync(prerendered)) for (const file of walk(prerendered)) if (/\.(html|rsc|body)$/.test(file)) yield file;
+}
+
 let files = 0;
 const problems = [];
-for (const file of walk(staticDir)) {
-  if (!/\.(js|css|html|json|map|txt)$/.test(file)) continue;
+for (const file of browserFiles()) {
   files++;
   const text = readFileSync(file, "utf8");
   for (const n of needles) if (text.includes(n.text)) problems.push(`${file}: contains the ${n.label}`);
