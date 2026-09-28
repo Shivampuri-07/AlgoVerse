@@ -15,13 +15,14 @@
     "test:ai": "node --experimental-strip-types --no-warnings --import ./scripts/tests/register.mjs --test scripts/tests/ai-route.test.ts",
     "test:sw": "node --test scripts/tests/sw.test.mjs",
     "test:videos": "node --experimental-strip-types --no-warnings --import ./scripts/tests/register.mjs --test scripts/tests/videos.test.ts",
-    "test": "npm run test:ai && npm run test:sw && npm run test:videos && npm run test:auth-unit && npm run test:sync-unit",
+    "test": "npm run test:ai && npm run test:sw && npm run test:videos && npm run test:auth-unit && npm run test:sync-unit && npm run test:billing-unit",
     "test:auth-unit": "node --experimental-strip-types --no-warnings --import ./scripts/tests/register.mjs --test scripts/tests/auth-unit.test.ts",
     "test:rules": "node --test scripts/tests/firestore-rules.test.mjs",
     "test:auth-emulator": "node --experimental-strip-types --no-warnings --import ./scripts/tests/register.mjs --test scripts/tests/auth-emulator.test.ts",
     "test:firebase": "npx -y firebase-tools@15.31.0 emulators:exec --only auth,firestore --project demo-algoverse \"npm run test:rules && npm run test:auth-emulator\"",
     "check:secrets": "node scripts/check-bundle-secrets.mjs",
     "test:e2e": "node scripts/tests/run-e2e.mjs",
+    "test:billing-unit": "node --experimental-strip-types --no-warnings --import ./scripts/tests/register.mjs --test scripts/tests/billing-unit.test.ts",
     "test:sync-unit": "node --experimental-strip-types --no-warnings --import ./scripts/tests/register.mjs --test scripts/tests/sync-unit.test.ts"
   },
   "dependencies": {
