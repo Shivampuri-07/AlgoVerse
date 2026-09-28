@@ -23,6 +23,7 @@ import {
   type VerificationOutcome,
   type VerificationState,
 } from "@/lib/auth/verification";
+import { describeDomainDiagnosis, diagnoseUnauthorizedDomain, type DomainDiagnosis } from "@/lib/auth/authorized-domains";
 import {
   createGoogleProvider,
   googleErrorMessage,
@@ -62,6 +63,14 @@ interface AuthContextValue {
    * and returns an "app/cooldown" outcome without changing the pause. Never throws.
    */
   resendVerification: () => Promise<VerificationOutcome>;
+  /**
+   * Checks, in the background, whether this page's hostname is in the Firebase project's
+   * Authorized domains (same public endpoint and rule the Firebase SDK uses). Call on mount of
+   * any Google button so a click never waits on the network (pop-up blockers).
+   */
+  checkGoogleDomain: () => Promise<DomainDiagnosis | null>;
+  /** Set when that check found Google sign-in can't work on this hostname. */
+  googleDomainIssue: DomainDiagnosis | null;
   /** Sign in (or up) with Google in a popup; falls back to nothing automatically. Never throws. */
   signInWithGoogle: () => Promise<GoogleOutcome>;
   /** Same as signInWithGoogle but by full-page redirect (when pop-ups are blocked). */
@@ -158,9 +167,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = React.useState<SessionUser | null>(null);
   const [verificationState, setVerificationState] = React.useState<VerificationState>(INITIAL_VERIFICATION_STATE);
   const stateRef = React.useRef<{ uid: string | null; state: VerificationState }>({ uid: null, state: INITIAL_VERIFICATION_STATE });
-  const { details: diagnostics } = useFirebaseSetup();
+  const { details: diagnostics, stableHosts } = useFirebaseSetup();
   const sendingRef = React.useRef<Promise<VerificationOutcome> | null>(null);
   const pendingLinkRef = React.useRef<PendingGoogleLink | null>(null);
+  const domainCheckRef = React.useRef<Promise<DomainDiagnosis | null> | null>(null);
+  const [googleDomainIssue, setGoogleDomainIssue] = React.useState<DomainDiagnosis | null>(null);
+  const domainIssueRef = React.useRef<DomainDiagnosis | null>(null);
+
+  const checkGoogleDomain = React.useCallback((): Promise<DomainDiagnosis | null> => {
+    // The emulator has no authorised-domain check (the SDK skips it there too).
+    if (!config || authEmulatorHost) return Promise.resolve(null);
+    domainCheckRef.current ??= diagnoseUnauthorizedDomain({
+      hostname: window.location.hostname,
+      apiKey: config.apiKey,
+      configuredProjectId: config.projectId,
+      alternativeHosts: stableHosts,
+    }).then((d) => {
+      const blocking = d.problem === "host_not_authorized" || d.problem === "key_project_mismatch";
+      domainIssueRef.current = blocking ? d : null;
+      setGoogleDomainIssue(blocking ? d : null);
+      if (blocking && diagnostics) {
+        console.warn("[auth] Google sign-in unavailable on this hostname", {
+          hostname: d.hostname,
+          problem: d.problem,
+          keyProjectId: d.keyProjectId,
+          authorizedAlternativeUrl: d.authorizedAlternativeUrl,
+        });
+      }
+      return d;
+    });
+    return domainCheckRef.current;
+  }, [config, authEmulatorHost, stableHosts, diagnostics]);
+
+  /** If the background check already knows this hostname can't use Google sign-in: don't open a doomed popup. */
+  const domainBlock = React.useCallback((): GoogleOutcome | null => {
+    const d = domainIssueRef.current;
+    return d
+      ? { status: "error", code: "auth/unauthorized-domain", message: describeDomainDiagnosis(d, diagnostics), domainDiagnosis: d }
+      : null;
+  }, [diagnostics]);
   const [pendingGoogleLink, setPendingGoogleLink] = React.useState<{ email: string | null } | null>(null);
 
   /** Single place that changes the verification state: memory + storage + render. */
@@ -261,8 +306,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       return { status: "link-required", email };
     }
+    if (code === "auth/unauthorized-domain" && config) {
+      // Check the same list Firebase checked, for this exact hostname, and say what's wrong.
+      const hostname = window.location.hostname;
+      const domainDiagnosis = await diagnoseUnauthorizedDomain({
+        hostname,
+        apiKey: config.apiKey,
+        configuredProjectId: config.projectId,
+        alternativeHosts: stableHosts,
+      });
+      if (diagnostics) {
+        console.warn("[auth] Google sign-in: auth/unauthorized-domain", {
+          hostname,
+          problem: domainDiagnosis.problem,
+          keyProjectId: domainDiagnosis.keyProjectId,
+          authorizedAlternativeUrl: domainDiagnosis.authorizedAlternativeUrl,
+        });
+      }
+      return { status: "error", code, message: describeDomainDiagnosis(domainDiagnosis, diagnostics), domainDiagnosis };
+    }
     return { status: "error", code, message: googleErrorMessage(code) };
-  }, []);
+  }, [config, stableHosts, diagnostics]);
 
   /** After any Google sign-in: fresh Firebase state, then the server session. */
   const finishGoogleSignIn = React.useCallback(
@@ -413,7 +477,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         return sendVerificationEmail(current);
       },
+      checkGoogleDomain,
+      googleDomainIssue,
       async signInWithGoogle() {
+        const blocked = domainBlock();
+        if (blocked) return blocked;
         try {
           const auth = await load();
           const { signInWithPopup, getAdditionalUserInfo } = await import("firebase/auth");
@@ -424,6 +492,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       },
       async signInWithGoogleRedirect() {
+        const blocked = domainBlock();
+        if (blocked) return blocked;
         try {
           const auth = await load();
           const { signInWithRedirect } = await import("firebase/auth");
@@ -434,6 +504,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       },
       async linkGoogle() {
+        const blocked = domainBlock();
+        if (blocked) return blocked;
         try {
           const auth = await load();
           const current = auth.currentUser;
@@ -515,6 +587,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       verificationState,
       pendingGoogleLink,
+      googleDomainIssue,
+      checkGoogleDomain,
+      domainBlock,
       load,
       currentState,
       sendVerificationEmail,

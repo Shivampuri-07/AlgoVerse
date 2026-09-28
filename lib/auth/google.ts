@@ -37,7 +37,13 @@ export type GoogleOutcome =
   /** An account already exists for this email with another sign-in method: sign in with it to link Google. */
   | { status: "link-required"; email: string | null }
   | { status: "redirecting" }
-  | { status: "error"; code: string; message: string };
+  | {
+      status: "error";
+      code: string;
+      message: string;
+      /** For auth/unauthorized-domain: what Firebase compared and why it failed (public data only). */
+      domainDiagnosis?: import("@/lib/auth/authorized-domains").DomainDiagnosis;
+    };
 
 /** The user closed or replaced the popup — not an error worth shouting about. */
 const CANCEL_CODES = new Set(["auth/popup-closed-by-user", "auth/cancelled-popup-request", "auth/user-cancelled"]);
@@ -53,7 +59,9 @@ export function googleErrorMessage(code: string): string {
     case "auth/operation-not-allowed":
       return "Google sign-in isn't enabled for this app yet.";
     case "auth/unauthorized-domain":
-      return "This site's domain isn't authorised for Google sign-in in Firebase yet.";
+      return typeof window !== "undefined"
+        ? `Firebase rejected this page's hostname “${window.location.hostname}” (auth/unauthorized-domain). Add it under Firebase console → Authentication → Settings → Authorized domains.`
+        : "This site's hostname isn't in Firebase's Authorized domains (auth/unauthorized-domain).";
     case "auth/credential-already-in-use":
       return "That Google account is already used by a different AlgoVerse account. Accounts are never merged automatically — sign in with Google to use that account instead.";
     case "auth/provider-already-linked":

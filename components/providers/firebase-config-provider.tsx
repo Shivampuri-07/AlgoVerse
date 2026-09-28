@@ -14,6 +14,8 @@ export interface FirebaseSetup extends PublicConfigState {
   /** Show setup details (variable names, deployment) — false on production. */
   details: boolean;
   deployment: DeploymentInfo | null;
+  /** Stable hostnames of this deployment (branch URL, production URL) — public. */
+  stableHosts: string[];
 }
 
 // Without a provider (e.g. an isolated component test) fall back to the build-time values.
@@ -21,6 +23,7 @@ const fallback: FirebaseSetup = {
   ...resolvePublicConfig(readPublicVars(), {}, getAuthEmulatorHost()),
   details: true,
   deployment: null,
+  stableHosts: [],
 };
 
 const FirebaseConfigContext = React.createContext<FirebaseSetup>(fallback);

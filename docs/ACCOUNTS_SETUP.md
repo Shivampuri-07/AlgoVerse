@@ -22,6 +22,19 @@ Sign-in with Google also needs the site's domain under **Authentication → Sett
 Authorized domains** (step 3): the production domain, the branch preview domain
 `algo-verse-git-feat-accounts-firebase-algo-verse1.vercel.app`, and `localhost`.
 
+**Why you can still get `auth/unauthorized-domain`:** Firebase compares the page's exact
+hostname, or a subdomain of a listed entry, with the Authorized domains of the project that owns
+the web API key. Vercel gives every deployment its own hostname (for example
+`algo-verse-cztr4xzv3-algo-verse1.vercel.app`), and that's what the Vercel "Visit" button and
+GitHub's "View deployment" link open. Those per-deployment hostnames change on every push and
+are not covered by the branch URL. Test Google sign-in on the **branch URL**. The login page
+checks this in the background and names the exact hostname, shows which project's list was
+used, and links to the authorised address. Don't add `vercel.app` as a domain: that would
+authorise every Vercel site on the internet.
+
+No Google Cloud Console change is needed for the web popup/redirect flow. Firebase's
+auto-created OAuth client already allows `https://algoverse-f5b48.firebaseapp.com/__/auth/handler`.
+
 How AlgoVerse handles existing accounts (Firebase keeps one account per email):
 - **Recommended for existing password users:** log in with the password, then use
   **Account → Link Google account** (also offered in the "Confirm your email" card). This keeps

@@ -48,3 +48,4 @@ ui-debug.log
 .firebase/
 /.next-e2e/
 /.next-e2e-nofb/
+/.next-e2e-live/

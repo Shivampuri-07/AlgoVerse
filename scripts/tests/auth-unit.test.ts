@@ -492,3 +492,92 @@ test("a continue URL already known to be rejected → exactly one request per se
   assert.equal(out.ok, true);
   assert.deepEqual(calls, [null]);
 });
+
+// ---------------------------------------------------------------- authorised-domain diagnosis
+
+const domains = await import("@/lib/auth/authorized-domains");
+const BRANCH = "algo-verse-git-feat-accounts-firebase-algo-verse1.vercel.app";
+const DEPLOYMENT = "algo-verse-cztr4xzv3-algo-verse1.vercel.app";
+
+test("hostname matching follows the Firebase SDK rule (exact host or subdomain, case-insensitive)", () => {
+  const m = domains.hostMatchesAuthorizedDomain;
+  assert.equal(m(BRANCH, BRANCH), true);
+  assert.equal(m(BRANCH.toUpperCase(), BRANCH), true);
+  assert.equal(m(DEPLOYMENT, BRANCH), false, "a per-deployment URL is NOT covered by the branch URL");
+  assert.equal(m("localhost", "localhost"), true);
+  assert.equal(m("a.b.example.com", "example.com"), true, "subdomains match");
+  assert.equal(m("badexample.com", "example.com"), false, "suffix without a dot doesn't");
+  assert.equal(m(BRANCH, `https://${BRANCH}`), false, "an entry with a scheme never matches");
+  assert.equal(m(BRANCH, `${BRANCH}/`), false);
+  assert.equal(m("10.0.0.1", "10.0.0.1"), true);
+  assert.equal(m("10.0.0.12", "10.0.0.1"), false, "IP entries are exact");
+  assert.equal(m("xalgo-verse-phi.vercel.app", "algo-verse-phi.vercel.app"), false);
+  assert.deepEqual(domains.malformedDomainEntries(["ok.com", "https://x.com", "y.com/", "z.com:3000", "a b"]), ["https://x.com", "y.com/", "z.com:3000", "a b"]);
+});
+
+function fakeProjects(body: unknown, status = 200) {
+  const calls: string[] = [];
+  const impl = (async (url: string) => {
+    calls.push(String(url));
+    return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  }) as unknown as typeof fetch;
+  return { impl, calls };
+}
+
+test("diagnosis: per-deployment URL not authorised, branch URL is → suggests the branch URL", async () => {
+  const { impl, calls } = fakeProjects({ projectId: "algoverse-f5b48", authorizedDomains: ["localhost", "algoverse-f5b48.firebaseapp.com", BRANCH, "algo-verse-phi.vercel.app"] });
+  const d = await domains.diagnoseUnauthorizedDomain({
+    hostname: DEPLOYMENT,
+    apiKey: "AIzaPUBLICWEBKEY",
+    configuredProjectId: "algoverse-f5b48",
+    alternativeHosts: [BRANCH, "algo-verse-phi.vercel.app"],
+    fetchImpl: impl,
+  });
+  assert.equal(calls[0], "https://identitytoolkit.googleapis.com/v1/projects?key=AIzaPUBLICWEBKEY", "same public endpoint the SDK uses");
+  assert.equal(d.problem, "host_not_authorized");
+  assert.equal(d.hostname, DEPLOYMENT);
+  assert.equal(d.authorizedAlternativeUrl, `https://${BRANCH}`);
+  const text = domains.describeDomainDiagnosis(d, false);
+  assert.match(text, new RegExp(DEPLOYMENT.replace(/\./g, "\\.")));
+  assert.match(text, /auth\/unauthorized-domain/);
+  assert.match(text, /open that instead/);
+  assert.ok(!text.includes("AIza"), "the API key is never shown");
+  assert.ok(!text.includes("Currently authorised"), "domain list only with details");
+  assert.match(domains.describeDomainDiagnosis(d, true), /Currently authorised: localhost/);
+});
+
+test("diagnosis: API key from another Firebase project is called out", async () => {
+  const { impl } = fakeProjects({ projectId: "some-other-project", authorizedDomains: ["localhost"] });
+  const d = await domains.diagnoseUnauthorizedDomain({ hostname: BRANCH, apiKey: "k", configuredProjectId: "algoverse-f5b48", fetchImpl: impl });
+  assert.equal(d.problem, "key_project_mismatch");
+  assert.match(domains.describeDomainDiagnosis(d, false), /belongs to project some-other-project.*configured for algoverse-f5b48/);
+});
+
+test("diagnosis: malformed entries flagged; host already authorised; endpoint unreachable", async () => {
+  const bad = await domains.diagnoseUnauthorizedDomain({
+    hostname: BRANCH,
+    apiKey: "k",
+    configuredProjectId: "algoverse-f5b48",
+    fetchImpl: fakeProjects({ projectId: "algoverse-f5b48", authorizedDomains: [`https://${BRANCH}`] }).impl,
+  });
+  assert.equal(bad.problem, "host_not_authorized");
+  assert.deepEqual(bad.malformedEntries, [`https://${BRANCH}`]);
+  assert.match(domains.describeDomainDiagnosis(bad, false), /can never match/);
+
+  const ok = await domains.diagnoseUnauthorizedDomain({
+    hostname: BRANCH,
+    apiKey: "k",
+    configuredProjectId: "algoverse-f5b48",
+    fetchImpl: fakeProjects({ projectId: "algoverse-f5b48", authorizedDomains: [BRANCH] }).impl,
+  });
+  assert.equal(ok.problem, "host_authorized");
+
+  const down = await domains.diagnoseUnauthorizedDomain({ hostname: BRANCH, apiKey: "k", configuredProjectId: null, fetchImpl: fakeProjects({}, 403).impl });
+  assert.equal(down.problem, "unknown");
+  assert.match(domains.describeDomainDiagnosis(down, false), new RegExp(BRANCH.replace(/\./g, "\\.")));
+});
+
+test("stable hosts come from Vercel's branch/production URL variables, normalised", withEnv({ VERCEL_BRANCH_URL: `${BRANCH}`, VERCEL_PROJECT_PRODUCTION_URL: "https://algo-verse-phi.vercel.app/" }, async () => {
+  const { stableHosts } = await import("@/lib/firebase/deployment");
+  assert.deepEqual(stableHosts(), [BRANCH, "algo-verse-phi.vercel.app"]);
+}));
