@@ -356,7 +356,7 @@ test("email verification: sign-up requests it, resend is rate-limited, only Fire
   // Resend is disabled during the cooldown (no duplicate rapid requests).
   const resend = page.getByRole("button", { name: /Resend email/ });
   assert.ok(await resend.isDisabled(), "resend disabled right after sending");
-  assert.match(await resend.innerText(), /\(\d+s\)/);
+  assert.match(await resend.innerText(), /\((\d+s|\d+:\d\d)\)/);
   assert.equal((await oobCodesFor(email)).length, 1, "no extra request");
 
   // Visiting the continue URL without actually verifying must NOT mark the account verified.
@@ -377,5 +377,75 @@ test("email verification: sign-up requests it, resend is rate-limited, only Fire
   assert.equal(await page.getByText("Confirm your email").count(), 0, "banner gone");
   const profile = await page.evaluate(async () => (await fetch("/api/account/profile")).json());
   assert.equal(profile.profile.emailVerified, true, "server (Firebase Admin) agrees");
+  await context.close();
+});
+
+test("verification requests: one per sign-up, none on load/focus/reload, and auth/too-many-requests pauses Resend across reloads", async () => {
+  const email = `ratelimit-${Date.now()}@example.com`;
+  const { context, page } = await newPage(CONFIGURED);
+  let sendOobCalls = 0;
+  let simulateRateLimit = false;
+  await context.route("**/accounts:sendOobCode**", async (route) => {
+    sendOobCalls++;
+    if (simulateRateLimit) {
+      // What Firebase answers when it throttles: HTTP 400 TOO_MANY_ATTEMPTS_TRY_LATER.
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: 400, message: "TOO_MANY_ATTEMPTS_TRY_LATER", errors: [] } }),
+      });
+    } else {
+      await route.continue();
+    }
+  });
+
+  await page.goto("/signup");
+  await page.waitForFunction(() => !document.querySelector('button[type="submit"]')?.disabled);
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password", { exact: true }).fill("letters123");
+  await page.getByLabel("Confirm password").fill("letters123");
+  await page.getByRole("button", { name: "Create account" }).click();
+  await page.waitForURL("**/account**");
+  await page.getByText(/Firebase accepted the request at/).waitFor();
+  assert.equal(sendOobCalls, 1, "sign-up sends exactly one request");
+
+  // Page loads, reloads, tab focus / visibility changes: no sends.
+  for (let i = 0; i < 2; i++) {
+    await page.reload();
+    await page.getByText("Not verified").waitFor();
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event("focus"));
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await page.waitForTimeout(500);
+  }
+  assert.equal(sendOobCalls, 1, "no automatic sends on load, reload or focus");
+  const resend = page.getByRole("button", { name: /Resend email/ });
+  assert.ok(await resend.isDisabled(), "success cooldown survives reloads");
+
+  // Pretend the success cooldown has passed, then let Firebase throttle the next request.
+  await page.evaluate(() => {
+    for (const k of Object.keys(localStorage)) if (k.startsWith("algoverse-verification-block")) localStorage.removeItem(k);
+  });
+  await page.reload();
+  await page.getByText("Not verified").waitFor();
+  await page.waitForFunction(() => {
+    const b = [...document.querySelectorAll("button")].find((x) => x.textContent?.startsWith("Resend email"));
+    return b && !b.disabled;
+  });
+  simulateRateLimit = true;
+  await resend.click();
+  await page.getByText(/The email was not sent:.*auth\/too-many-requests/).waitFor();
+  assert.equal(sendOobCalls, 2, "exactly one request for the click");
+  assert.ok(await resend.isDisabled(), "Resend paused after too-many-requests");
+  assert.match(await resend.innerText(), /\((1[45]):\d\d\)/, "about 15 minutes");
+
+  // Reload: still paused (persisted), still no new requests.
+  await page.reload();
+  await page.getByText(/auth\/too-many-requests/).waitFor();
+  assert.ok(await page.getByRole("button", { name: /Resend email/ }).isDisabled(), "pause survives reload");
+  await page.getByRole("button", { name: /Resend email/ }).click({ force: true }).catch(() => {});
+  await page.waitForTimeout(500);
+  assert.equal(sendOobCalls, 2, "no further requests while paused");
   await context.close();
 });

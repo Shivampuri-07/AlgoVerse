@@ -11,6 +11,12 @@ import type { User } from "firebase/auth";
 
 /** Minimum gap between two verification emails for the same account (Firebase also rate-limits). */
 export const VERIFICATION_COOLDOWN_MS = 60_000;
+/**
+ * After Firebase says auth/too-many-requests, don't ask again for this long: every request made
+ * while throttled is another failed attempt and can keep the block in place.
+ */
+export const RATE_LIMITED_BACKOFF_MS = 15 * 60_000;
+export const QUOTA_BACKOFF_MS = 60 * 60_000;
 
 export type VerificationOutcome =
   | {
@@ -51,10 +57,19 @@ const CONTINUE_URL_ERRORS = new Set([
  */
 export async function requestVerificationEmail(
   user: User,
-  continueUrl: string,
+  continueUrl: string | null,
   send?: (user: User, settings?: { url: string }) => Promise<void>
 ): Promise<VerificationOutcome> {
   const sendEmail = send ?? (await import("firebase/auth")).sendEmailVerification;
+  // Continue URL already known to be rejected for this site: one request, not two.
+  if (continueUrl === null) {
+    try {
+      await sendEmail(user);
+      return { ok: true, at: Date.now(), continueUrlUsed: false };
+    } catch (err) {
+      return { ok: false, at: Date.now(), ...firebaseErrorInfo(err) };
+    }
+  }
   try {
     await sendEmail(user, { url: continueUrl });
     return { ok: true, at: Date.now(), continueUrlUsed: true };
@@ -70,6 +85,27 @@ export async function requestVerificationEmail(
   }
 }
 
+/**
+ * Earliest time another request may be made after `outcome` — for successes AND failures, so a
+ * rejected request can't be retried in a tight loop. Transient/local problems don't block.
+ */
+export function nextAllowedAt(outcome: VerificationOutcome): number {
+  if (outcome.ok) return outcome.at + VERIFICATION_COOLDOWN_MS;
+  switch (outcome.code) {
+    case "auth/too-many-requests":
+      return outcome.at + RATE_LIMITED_BACKOFF_MS;
+    case "auth/quota-exceeded":
+      return outcome.at + QUOTA_BACKOFF_MS;
+    case "auth/network-request-failed":
+    case "app/cooldown":
+    case "app/no-current-user":
+    case "app/already-verified":
+      return 0;
+    default:
+      return outcome.at + VERIFICATION_COOLDOWN_MS;
+  }
+}
+
 /** Milliseconds left before another email may be requested (0 = allowed now). */
 export function cooldownRemaining(lastAt: number | null | undefined, now = Date.now()): number {
   if (!lastAt) return 0;
@@ -80,7 +116,7 @@ export function cooldownRemaining(lastAt: number | null | undefined, now = Date.
 export function verificationFailureMessage(code: string, detail = ""): string {
   switch (code) {
     case "auth/too-many-requests":
-      return "Firebase is temporarily blocking more emails for this account because of too many requests. Wait a few minutes (sometimes up to an hour) and try once.";
+      return "Firebase is temporarily refusing to send more emails for this account or network (too many requests). Resend is paused for 15 minutes here — please try once after that, not repeatedly.";
     case "auth/quota-exceeded":
       return "This project's daily email quota has been reached. Try again tomorrow.";
     case "auth/network-request-failed":

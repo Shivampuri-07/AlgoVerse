@@ -423,3 +423,23 @@ test("resend cooldown", () => {
   assert.equal(verification.cooldownRemaining(t, t + 1_000), verification.VERIFICATION_COOLDOWN_MS - 1_000);
   assert.equal(verification.cooldownRemaining(t, t + verification.VERIFICATION_COOLDOWN_MS + 1), 0);
 });
+
+test("the wait after a request applies to failures too (15 min after auth/too-many-requests)", () => {
+  const at = 5_000_000;
+  const v = verification;
+  assert.equal(v.nextAllowedAt({ ok: true, at, continueUrlUsed: true }), at + v.VERIFICATION_COOLDOWN_MS);
+  assert.equal(v.nextAllowedAt({ ok: false, at, code: "auth/too-many-requests", detail: "" }), at + v.RATE_LIMITED_BACKOFF_MS);
+  assert.equal(v.RATE_LIMITED_BACKOFF_MS, 15 * 60_000);
+  assert.equal(v.nextAllowedAt({ ok: false, at, code: "auth/quota-exceeded", detail: "" }), at + v.QUOTA_BACKOFF_MS);
+  assert.equal(v.nextAllowedAt({ ok: false, at, code: "auth/internal-error", detail: "" }), at + v.VERIFICATION_COOLDOWN_MS);
+  assert.equal(v.nextAllowedAt({ ok: false, at, code: "auth/network-request-failed", detail: "" }), 0, "offline: retry allowed");
+});
+
+test("a continue URL already known to be rejected → exactly one request per send", async () => {
+  const calls: unknown[] = [];
+  const out = await verification.requestVerificationEmail(fakeUser, null, async (_u, s) => {
+    calls.push(s ?? null);
+  });
+  assert.equal(out.ok, true);
+  assert.deepEqual(calls, [null]);
+});

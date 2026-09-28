@@ -13,8 +13,8 @@ import {
 } from "@/lib/auth/client";
 import type { AccountProfile, SessionUser } from "@/lib/auth/shared";
 import {
-  cooldownRemaining,
   firebaseErrorInfo,
+  nextAllowedAt,
   requestVerificationEmail,
   type VerificationOutcome,
 } from "@/lib/auth/verification";
@@ -42,6 +42,8 @@ interface AuthContextValue {
   sendPasswordReset: (email: string) => Promise<void>;
   /** Result of the latest verification-email request for the signed-in user (this browser). */
   verification: VerificationOutcome | null;
+  /** Until when (ms epoch) the next verification email may not be requested; persisted per account. */
+  verificationBlockedUntil: number;
   /** Asks Firebase to send the verification email again. Honours the cooldown; never throws. */
   resendVerification: () => Promise<VerificationOutcome>;
   /**
@@ -77,24 +79,47 @@ async function sessionOrSignOut(auth: Auth, fbUser: User, prefix = ""): Promise<
   }
 }
 
-const LAST_SENT_KEY = "algoverse-verification-sent-at";
+const BLOCK_KEY = "algoverse-verification-block";
+const CONTINUE_REJECTED_KEY = "algoverse-verification-continue-rejected";
 
-/** When this browser last got a verification email accepted for `uid` (for the cooldown). */
-function readLastSent(uid: string): number | null {
+/** Persisted per account: the last outcome (no email address) and when the next request is allowed. */
+interface StoredBlock {
+  until: number;
+  outcome: VerificationOutcome;
+}
+
+function readBlock(uid: string): StoredBlock | null {
   try {
-    const raw = window.localStorage.getItem(`${LAST_SENT_KEY}:${uid}`);
-    const at = raw ? Number(raw) : NaN;
-    return Number.isFinite(at) ? at : null;
+    const raw = window.localStorage.getItem(`${BLOCK_KEY}:${uid}`);
+    const parsed = raw ? (JSON.parse(raw) as StoredBlock) : null;
+    return parsed && typeof parsed.until === "number" && parsed.outcome ? parsed : null;
   } catch {
     return null;
   }
 }
 
-function writeLastSent(uid: string, at: number) {
+function writeBlock(uid: string, block: StoredBlock) {
   try {
-    window.localStorage.setItem(`${LAST_SENT_KEY}:${uid}`, String(at));
+    window.localStorage.setItem(`${BLOCK_KEY}:${uid}`, JSON.stringify(block));
   } catch {
-    /* storage unavailable — the in-memory outcome still enforces the cooldown */
+    /* storage unavailable — the in-memory state still enforces the wait */
+  }
+}
+
+/** This site's continue URL was rejected by Firebase (domain not authorised): don't try it again. */
+function continueUrlRejected(): boolean {
+  try {
+    return window.localStorage.getItem(`${CONTINUE_REJECTED_KEY}:${window.location.origin}`) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function rememberContinueUrlRejected() {
+  try {
+    window.localStorage.setItem(`${CONTINUE_REJECTED_KEY}:${window.location.origin}`, "1");
+  } catch {
+    /* ignore */
   }
 }
 
@@ -106,6 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = React.useState<AuthStatus>(configured ? "loading" : "unavailable");
   const [user, setUser] = React.useState<SessionUser | null>(null);
   const [verification, setVerification] = React.useState<VerificationOutcome | null>(null);
+  const [verificationBlockedUntil, setVerificationBlockedUntil] = React.useState(0);
   const { details: diagnostics } = useFirebaseSetup();
   const sendingRef = React.useRef<Promise<VerificationOutcome> | null>(null);
 
@@ -119,8 +145,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // One request at a time (double clicks, sign-up + resend racing).
       if (sendingRef.current) return sendingRef.current;
       const run = (async () => {
-        const outcome = await requestVerificationEmail(fbUser, continueUrl("/account?verified=1"));
-        if (outcome.ok) writeLastSent(fbUser.uid, outcome.at);
+        const outcome = await requestVerificationEmail(
+          fbUser,
+          continueUrlRejected() ? null : continueUrl("/account?verified=1")
+        );
+        if (outcome.ok && outcome.fallbackCode) rememberContinueUrlRejected();
+        const until = nextAllowedAt(outcome);
+        if (until > 0) writeBlock(fbUser.uid, { until, outcome });
+        setVerificationBlockedUntil(until);
         setVerification(outcome);
         if (diagnostics) {
           console.info("[auth] verification email request", {
@@ -128,6 +160,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             code: outcome.ok ? outcome.fallbackCode ?? null : outcome.code,
             reason: outcome.ok ? null : outcome.detail || null,
             continueUrlUsed: outcome.ok ? outcome.continueUrlUsed : null,
+            nextRequestAllowedInSeconds: Math.max(0, Math.round((until - Date.now()) / 1000)),
             userPresent: true,
             emailVerified: fbUser.emailVerified,
           });
@@ -147,6 +180,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const applySignedIn = React.useCallback((u: SessionUser) => {
     setUser(u);
     setStatus("signed-in");
+    // Restore the last verification request (and its wait) for this account after a reload.
+    const stored = readBlock(u.uid);
+    if (stored) {
+      setVerification((v) => v ?? stored.outcome);
+      setVerificationBlockedUntil((t) => Math.max(t, stored.until));
+    }
   }, []);
   const applySignedOut = React.useCallback(() => {
     setUser(null);
@@ -237,6 +276,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { signOut } = await import("firebase/auth");
         await signOut(auth);
         setVerification(null);
+        setVerificationBlockedUntil(0);
         applySignedOut();
       },
       async sendPasswordReset(email) {
@@ -256,6 +296,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       },
       verification,
+      verificationBlockedUntil,
       async resendVerification() {
         let auth: Auth;
         try {
@@ -270,8 +311,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (current.emailVerified) {
           return { ok: false, at: Date.now(), code: "app/already-verified", detail: "" };
         }
-        const last = Math.max(readLastSent(current.uid) ?? 0, verification?.ok ? verification.at : 0);
-        const wait = cooldownRemaining(last);
+        // Persisted wait from ANY previous outcome (success or failure), across reloads and tabs.
+        const until = Math.max(readBlock(current.uid)?.until ?? 0, verificationBlockedUntil);
+        const wait = until - Date.now();
         if (wait > 0) return { ok: false, at: Date.now(), code: "app/cooldown", detail: String(Math.ceil(wait / 1000)) };
         return sendVerificationEmail(current);
       },
@@ -306,7 +348,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser((u) => (u ? { ...u, displayName: name } : u));
       },
     }),
-    [status, user, verification, load, sendVerificationEmail, applySignedIn, applySignedOut]
+    [status, user, verification, verificationBlockedUntil, load, sendVerificationEmail, applySignedIn, applySignedOut]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

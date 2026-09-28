@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { firebaseErrorMessage, patchProfile } from "@/lib/auth/client";
 import { DISPLAY_NAME_MAX_LENGTH, normalizeDisplayName, type AccountProfile } from "@/lib/auth/shared";
-import { cooldownRemaining, verificationFailureMessage, type VerificationOutcome } from "@/lib/auth/verification";
+import { verificationFailureMessage, type VerificationOutcome } from "@/lib/auth/verification";
 
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
@@ -38,8 +38,17 @@ export function AccountView({
   initialProfile: AccountProfile;
   profileLoadFailed: boolean;
 }) {
-  const { user, status, signOut, verification, resendVerification, checkVerification, sendPasswordReset, setDisplayName } =
-    useAuth();
+  const {
+    user,
+    status,
+    signOut,
+    verification,
+    verificationBlockedUntil,
+    resendVerification,
+    checkVerification,
+    sendPasswordReset,
+    setDisplayName,
+  } = useAuth();
   const { config } = useFirebaseSetup();
   const router = useRouter();
   const params = useSearchParams();
@@ -164,7 +173,8 @@ export function AccountView({
   }
 
   const memberSince = formatDate(profile.createdAt);
-  const cooldown = verification?.ok ? cooldownRemaining(verification.at, now) : 0;
+  // Applies after failures too (e.g. 15 min after auth/too-many-requests), and survives reloads.
+  const cooldown = Math.max(0, verificationBlockedUntil - now);
 
   return (
     <div className="max-w-2xl space-y-6 pb-10">
@@ -200,7 +210,7 @@ export function AccountView({
                 aria-describedby="verification-status"
               >
                 {sendingVerification && <Loader2 className="h-4 w-4 animate-spin" />}
-                {cooldown > 0 ? `Resend email (${Math.ceil(cooldown / 1000)}s)` : "Resend email"}
+                {cooldown > 0 ? `Resend email (${formatWait(cooldown)})` : "Resend email"}
               </Button>
               <Button variant="ghost" onClick={() => void recheck(true)} disabled={checkingVerification}>
                 {checkingVerification && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -339,7 +349,7 @@ function useNow(intervalMs: number): number {
 function outcomeText(outcome: Extract<VerificationOutcome, { ok: false }>): string {
   switch (outcome.code) {
     case "app/cooldown":
-      return `Please wait ${outcome.detail}s before requesting another email.`;
+      return `Please wait ${formatWait(Number(outcome.detail) * 1000)} before requesting another email.`;
     case "app/no-current-user":
       return "Your sign-in on this device has expired. Log out, log in again, then resend the email.";
     default:
@@ -384,4 +394,11 @@ function VerificationStatus({
       The email was not sent: {outcomeText(outcome)}
     </p>
   );
+}
+
+/** "45s" or "14:05" for the resend countdown. */
+function formatWait(ms: number): string {
+  const total = Math.ceil(ms / 1000);
+  if (total < 60) return `${total}s`;
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
