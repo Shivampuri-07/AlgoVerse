@@ -28,7 +28,9 @@ function startServer(port, distDir, env) {
     // FIREBASE_SERVICE_ACCOUNT_KEY is set (empty) explicitly: Next.js never overrides an existing
     // variable with .env.local, so test servers can't pick up a real credential from it and can
     // never talk to the real Firebase project.
-    env: { ...env, FIREBASE_SERVICE_ACCOUNT_KEY: "", NEXT_DIST_DIR: distDir, PORT: String(port) },
+    // Never the real credentials from .env.local: no service account, and a fake Gemini key so the
+    // real Gemini API can't be called from tests.
+    env: { ...env, FIREBASE_SERVICE_ACCOUNT_KEY: "", GEMINI_API_KEY: "e2e-fake-not-a-key", NEXT_DIST_DIR: distDir, PORT: String(port) },
     stdio: "ignore",
   });
   servers.push(child);
@@ -974,7 +976,8 @@ test("pricing: public page shows Free and Pro (₹30/month), marks planned featu
   assert.match(table, /Articles and written learning content/);
   assert.match(table, /Striver videos and video explanations/);
   assert.match(table, /Cloud sync across devices/);
-  for (const planned of ["AI DSA helper", "Advanced analytics", "Interview preparation mode", "Personalized roadmap"]) {
+  assert.match(table, /AI DSA helper[\s\S]*10 questions a day\s*50 questions a day/, "AI helper available with daily limits");
+  for (const planned of ["Advanced analytics", "Interview preparation mode", "Personalized roadmap"]) {
     assert.match(table, new RegExp(`${planned}\\s*Planned`), `${planned} marked planned`);
   }
   // Signed out: the dialog leads to a free account, with no payment button.
@@ -1032,6 +1035,71 @@ test("billing: a Pro account (server entitlement) sees Pro, its end date and 'Yo
   await page.evaluate((u) => localStorage.setItem(`algoverse-entitlements:${u}`, JSON.stringify({ plan: "free" })), uid);
   await page.goto("/account/billing");
   assert.match(await page.getByTestId("current-plan").innerText(), /Pro/);
+  await context.close();
+});
+
+// ------------------------------------------------------------------ AI helper (Phase 5): sign-in required
+
+test("AI helper: signed-out visitors get a sign-in prompt (problem still fully usable); unverified users are asked to verify", async () => {
+  const { context, page } = await newPage(CONFIGURED);
+  await page.goto("/problems/1");
+  const locked = page.getByTestId("ai-locked");
+  await locked.waitFor();
+  assert.match(await locked.innerText(), /Log in or create a free account to use the AI helper/);
+  assert.equal(await locked.getByRole("link", { name: /Log in/ }).getAttribute("href"), "/login?next=%2Fproblems%2F1");
+  assert.equal(await page.getByPlaceholder(/Ask AI something/).count(), 0, "no chat box for signed-out visitors");
+  // A direct call is refused by the server.
+  const direct = await page.evaluate(async () => {
+    const r = await fetch("/api/ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ problem: { title: "x", topic: "y", difficulty: "Easy", tags: [] }, messages: [{ role: "user", content: "hi" }] }) });
+    return { status: r.status, body: await r.json() };
+  });
+  assert.deepEqual([direct.status, direct.body.error.code], [401, "sign_in_required"]);
+  // The problem itself stays free and usable.
+  await page.getByRole("button", { name: "Mark Completed" }).click();
+  await page.waitForTimeout(500);
+  assert.ok((await storeOf(page)).completed["1"]);
+
+  await signUpInUi(page, `ai-unverified-${Date.now()}@example.com`);
+  await page.goto("/problems/1");
+  await page.getByTestId("ai-locked").getByText(/Verify your email address to use the AI helper/).waitFor();
+  assert.equal(await page.getByTestId("ai-locked").getByRole("link", { name: /Verify on the Account page/ }).getAttribute("href"), "/account");
+  await context.close();
+});
+
+test("AI helper: a verified user chats as before, sees the allowance, and gets a clear message at the daily limit", async () => {
+  const { context, page } = await newPage(CONFIGURED);
+  const email = `ai-verified-${Date.now()}@example.com`;
+  await signUpInUi(page, email);
+  const [code] = await oobCodesFor(email);
+  await fetch(`${AUTH}/identitytoolkit.googleapis.com/v1/accounts:update?key=demo-api-key`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ oobCode: code.oobCode }) });
+  await page.goto("/account?verified=1");
+  await page.getByText("Verified", { exact: true }).waitFor();
+  // The real server enforces limits (tested on the emulators); here Gemini's side is simulated.
+  let posts = 0;
+  await context.route("**/api/ai", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    posts++;
+    const usage = { plan: "free", limit: 10, used: 9 + posts - 1, remaining: 10 - (9 + posts - 1), resetAt: "2026-09-29T18:30:00.000Z" };
+    if (posts === 1) {
+      return route.fulfill({ status: 200, contentType: "application/x-ndjson", body: `{"type":"delta","text":"Try a **hash map**."}\n{"type":"done","model":"gemini-3.8-flash","usage":${JSON.stringify(usage)}}\n` });
+    }
+    return route.fulfill({ status: 429, contentType: "application/json", headers: { "Retry-After": "3600" }, body: JSON.stringify({ error: { code: "daily_limit", message: "You've used all of today's AI questions. Your allowance resets at midnight (India time)." }, usage: { ...usage, used: 10, remaining: 0 } }) });
+  });
+  await page.goto("/problems/1");
+  await page.getByTestId("ai-usage").waitFor();
+  assert.match(await page.getByTestId("ai-usage").innerText(), /10 of 10 AI questions left today \(Free\)/, "allowance from GET /api/ai");
+  const input = page.getByPlaceholder(/Ask AI something/);
+  await input.fill("How do I start?");
+  await input.press("Enter");
+  await page.getByText("hash map").waitFor();
+  assert.match(await page.getByTestId("ai-usage").innerText(), /1 of 10 AI questions left today/);
+  await input.fill("And then?");
+  await input.press("Enter");
+  const alert = page.getByRole("alert").filter({ hasText: "used all of today's AI questions" });
+  await alert.waitFor();
+  assert.ok(await alert.getByRole("link", { name: "Pro: 50 a day" }).isVisible());
+  assert.equal(await alert.getByRole("button", { name: "Retry" }).count(), 0, "no pointless retry");
+  assert.match(await page.getByTestId("ai-usage").innerText(), /0 of 10/);
   await context.close();
 });
 

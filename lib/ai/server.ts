@@ -176,20 +176,26 @@ export function parseRequestBody(raw: unknown): AiRequestBody | null {
 
 /** User-facing copy for every failure mode (sent by the server). Never includes provider internals. */
 export const AI_ERROR_MESSAGES: Record<AiErrorCode, string> = {
-  not_configured:
-    "The AI helper isn't set up yet. Add GEMINI_API_KEY to .env.local and restart the dev server.",
+  // Setup problems: users see a neutral message; the server log says what to fix.
+  not_configured: "The AI helper isn't set up yet. Please try again later.",
   bad_request: "That request couldn't be processed. Try a shorter question or less code.",
-  unauthorized:
-    "Google Gemini rejected the API key. Check GEMINI_API_KEY in .env.local (create one at aistudio.google.com/apikey) and restart the dev server.",
-  rate_limited: "Free AI limit reached temporarily.\n\nPlease wait a little and try again.",
-  model_unavailable: "The Gemini model isn't available for this API key right now. Please try again later.",
-  region_unsupported: "The Gemini API free tier isn't available in your region for this API key.",
+  unauthorized: "The AI helper is unavailable right now. Please try again later.",
+  rate_limited: "The AI helper is busy right now (the shared free Gemini limit was reached).\n\nPlease wait a little and try again.",
+  model_unavailable: "The AI model isn't available right now. Please try again later.",
+  region_unsupported: "The AI helper isn't available in this region right now.",
   blocked: "Gemini declined to answer that. Try rephrasing your question.",
   timeout: "Gemini took too long to answer. Please try again.",
   provider_unavailable: "Google Gemini is unavailable right now. Please try again in a moment.",
   empty_response: "Gemini returned an empty answer. Please try again.",
   malformed_response: "Gemini sent back something unreadable. Please try again.",
   network: "Couldn't reach the AI helper. Check your connection and try again.",
+  sign_in_required: "Log in or create a free account to use the AI helper.",
+  verify_email: "Verify your email address to use the AI helper (Account page → Confirm your email).",
+  forbidden: "That request was blocked. Reload the page and try again.",
+  slow_down: "You're sending questions too quickly. Please wait a minute and try again.",
+  daily_limit: "You've used all of today's AI questions. Your allowance resets at midnight (India time).",
+  busy: "The AI helper has reached its shared limit for today. Please try again tomorrow.",
+  account_unavailable: "Accounts are unavailable right now, so the AI helper can't check your sign-in. Please try again later.",
 };
 
 
@@ -253,9 +259,13 @@ export function canFallBack(code: AiErrorCode): boolean {
 
 // ---------------------------------------------------------------------------------- rate limit
 
-/** Small in-memory limiter so one browser can't burn the shared free quota. */
+/**
+ * Per-instance flood guard by client IP, checked before any Firebase work. NOT the usage limit:
+ * that is per account and shared across instances (lib/ai/usage.ts). Generous, so students
+ * behind one college/NAT address don't block each other.
+ */
 const WINDOW_MS = 60_000;
-const MAX_PER_WINDOW = 15;
+const MAX_PER_WINDOW = 60;
 const hits = new Map<string, number[]>();
 
 export function allowRequest(clientKey: string, now = Date.now()): boolean {

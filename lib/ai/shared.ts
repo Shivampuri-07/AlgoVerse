@@ -35,7 +35,7 @@ export interface AiRequestBody {
 /** Newline-delimited JSON events streamed from /api/ai. */
 export type AiStreamEvent =
   | { type: "delta"; text: string }
-  | { type: "done"; model?: string }
+  | { type: "done"; model?: string; usage?: AiUsageView }
   | { type: "error"; code: AiErrorCode; message: string };
 
 export type AiErrorCode =
@@ -50,7 +50,25 @@ export type AiErrorCode =
   | "provider_unavailable"
   | "empty_response"
   | "malformed_response"
-  | "network";
+  | "network"
+  // Access (Phase 5): the helper needs a signed-in account with a verified email, within its daily limit.
+  | "sign_in_required"
+  | "verify_email"
+  | "forbidden"
+  | "slow_down"
+  | "daily_limit"
+  | "busy"
+  | "account_unavailable";
+
+/** The signed-in user's AI allowance for today (from the server; display only). */
+export interface AiUsageView {
+  plan: "free" | "pro";
+  limit: number;
+  used: number;
+  remaining: number;
+  /** When today's allowance resets (ISO; midnight India time). */
+  resetAt: string;
+}
 
 /**
  * Fallback copy the browser uses only when the server's own message isn't available
@@ -59,7 +77,7 @@ export type AiErrorCode =
  */
 export const AI_CLIENT_MESSAGES = {
   network: "Couldn't reach the AI helper. Check your connection and try again.",
-  rate_limited: "Free AI limit reached temporarily.\n\nPlease wait a little and try again.",
+  rate_limited: "The AI helper is busy right now.\n\nPlease wait a little and try again.",
   unavailable: "The AI helper is unavailable right now. Please try again in a moment.",
   empty_response: "The AI returned an empty answer. Please try again.",
   not_configured: "The AI helper isn't set up yet.",

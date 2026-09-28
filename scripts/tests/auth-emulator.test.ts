@@ -442,3 +442,111 @@ test("resources: signed-out 401, Free 403 (no links in the body), Pro 200, expir
   await grantPro(a.uid, Date.now() - 1000);
   assert.equal((await getResources("6", a.cookie)).status, 403, "expired Pro loses access");
 });
+
+// ---------------------------------------------------------------- AI helper access + limits (Phase 5)
+
+const aiRoute = await import("@/app/api/ai/route");
+const { istDay } = await import("@/lib/ai/usage");
+process.env.GEMINI_API_KEY = "AIzaSyTEST-FAKE-KEY-0123456789abcdefghi";
+process.env.AI_GLOBAL_DAILY_LIMIT = "100000"; // tests share one emulator day; the cap is tested explicitly
+const realFetch = globalThis.fetch;
+let geminiCalls = 0;
+let geminiMode: "ok" | "fail" = "ok";
+// Gemini is mocked; everything else (Auth/Firestore emulators) goes through.
+globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  if (!String(input).includes("generativelanguage.googleapis.com")) return realFetch(input, init);
+  geminiCalls++;
+  if (geminiMode === "fail") return new Response(JSON.stringify({ error: { code: 503, message: "overloaded", status: "UNAVAILABLE" } }), { status: 503, headers: { "Content-Type": "application/json" } });
+  const chunk = { candidates: [{ content: { role: "model", parts: [{ text: "hint" }] }, index: 0 }] };
+  return new Response(`data: ${JSON.stringify(chunk)}\r\n\r\n`, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+}) as typeof fetch;
+
+const aiBody = JSON.stringify({ problem: { title: "Two Sum", topic: "Arrays", difficulty: "Easy", tags: ["Array"] }, messages: [{ role: "user", content: "hint please" }], action: "hint" });
+let aiIp = 0;
+const askAi = async (headers: Record<string, string>) => {
+  const res = await aiRoute.POST(new Request(`${ORIGIN}/api/ai`, { method: "POST", headers: { "Content-Type": "application/json", origin: ORIGIN, "x-forwarded-for": `10.9.${aiIp >> 8}.${++aiIp & 255}`, ...headers }, body: aiBody }));
+  const text = await res.text();
+  assert.ok(!text.includes(process.env.GEMINI_API_KEY!), "key never in a response");
+  return { status: res.status, text, json: res.status === 200 ? null : JSON.parse(text), retryAfter: res.headers.get("retry-after") };
+};
+async function verifiedSession(email: string) {
+  const s = await newSession(email);
+  await getAdminAuth()!.updateUser(s.uid, { emailVerified: true }); // session claim stays stale on purpose
+  return s;
+}
+const usageDoc = (uid: string) => getAdminDb()!.doc(`aiUsage/${uid}`);
+
+test("ai: signed-out, forged, cross-site and unverified requests are refused before Gemini", async () => {
+  geminiCalls = 0;
+  assert.equal((await askAi({})).status, 401, "no session");
+  assert.equal((await askAi({ cookie: "algoverse_session=forged.value.here" })).json.error.code, "sign_in_required");
+  assert.equal((await askAi({ authorization: "Bearer not-a-token" })).status, 401);
+  const u = await newSession(`ai-unverified-${Date.now()}@example.com`);
+  const unverified = await askAi({ cookie: u.cookie });
+  assert.equal(unverified.status, 403);
+  assert.equal(unverified.json.error.code, "verify_email");
+  const v = await verifiedSession(`ai-csrf-${Date.now()}@example.com`);
+  const csrf = await askAi({ cookie: v.cookie, origin: "https://evil.example" });
+  assert.equal(csrf.status, 403);
+  assert.equal(csrf.json.error.code, "forbidden");
+  assert.equal(geminiCalls, 0);
+  // Verified after the session was created: the server asks Firebase and lets them in.
+  assert.equal((await askAi({ cookie: v.cookie })).status, 200);
+});
+
+test("ai: limits hold across parallel requests (Firestore transactions), then 429 until midnight IST", async () => {
+  const a = await verifiedSession(`ai-free-${Date.now()}@example.com`);
+  // 12 at once from different IPs: exactly 5 pass the per-minute limit.
+  const burst = await Promise.all(Array.from({ length: 12 }, () => askAi({ cookie: a.cookie })));
+  assert.equal(burst.filter((r) => r.status === 200).length, 5);
+  assert.ok(burst.filter((r) => r.status === 429).every((r) => r.json.error.code === "slow_down"));
+  assert.equal((await usageDoc(a.uid).get()).get("count"), 5);
+  // Near the daily limit (8 of 10, minute window expired): 6 at once → exactly 2 more.
+  await usageDoc(a.uid).set({ day: istDay(Date.now()), count: 8, minuteStart: 0, minuteCount: 0 });
+  const last = await Promise.all(Array.from({ length: 6 }, () => askAi({ cookie: a.cookie })));
+  assert.equal(last.filter((r) => r.status === 200).length, 2);
+  const over = last.find((r) => r.status === 429)!;
+  assert.equal(over.json.error.code, "daily_limit");
+  assert.equal(over.json.usage.limit, 10);
+  assert.ok(Number(over.retryAfter) > 0 && Number(over.retryAfter) <= 86_400);
+  assert.equal((await usageDoc(a.uid).get()).get("count"), 10);
+});
+
+test("ai: Pro gets 50 a day from the server entitlement; a Bearer token shares the same allowance", async () => {
+  const email = `ai-pro-${Date.now()}@example.com`;
+  const { uid, idToken } = await signUp(email);
+  const cookie = cookieFrom(await login(idToken));
+  await getAdminAuth()!.updateUser(uid, { emailVerified: true });
+  await grantPro(uid);
+  await usageDoc(uid).set({ day: istDay(Date.now()), count: 49, minuteStart: 0, minuteCount: 0 });
+  assert.equal((await askAi({ cookie })).status, 200, "the 50th question");
+  const bearer = await askAi({ authorization: `Bearer ${idToken}` });
+  assert.equal(bearer.status, 429);
+  assert.equal(bearer.json.error.code, "daily_limit");
+  assert.equal(bearer.json.usage.plan, "pro");
+  assert.equal(bearer.json.usage.limit, 50);
+  // GET shows the allowance (display only).
+  const g = await (await aiRoute.GET(new Request(`${ORIGIN}/api/ai`, { headers: { cookie } }))).json();
+  assert.deepEqual([g.configured, g.usage.plan, g.usage.remaining], [true, "pro", 0]);
+});
+
+test("ai: a Gemini failure before any answer is refunded in Firestore; the shared daily cap answers busy", async () => {
+  const a = await verifiedSession(`ai-refund-${Date.now()}@example.com`);
+  geminiMode = "fail";
+  const r = await askAi({ cookie: a.cookie });
+  geminiMode = "ok";
+  assert.equal(r.status, 503);
+  assert.equal(r.json.error.code, "provider_unavailable");
+  assert.equal((await usageDoc(a.uid).get()).get("count"), 0, "refunded");
+  // Whole-app cap reached → busy, Gemini not called.
+  const day = istDay(Date.now());
+  const globalRef = getAdminDb()!.doc(`aiUsageGlobal/${day}`);
+  const before = (await globalRef.get()).get("count");
+  await globalRef.set({ count: 100000 });
+  geminiCalls = 0;
+  const busy = await askAi({ cookie: a.cookie });
+  await globalRef.set({ count: before });
+  assert.equal(busy.status, 429);
+  assert.equal(busy.json.error.code, "busy");
+  assert.equal(geminiCalls, 0);
+});

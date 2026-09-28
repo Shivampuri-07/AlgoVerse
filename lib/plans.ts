@@ -20,6 +20,13 @@ export const PLANS: Record<PlanId, { name: string; features: PlanFeatures }> = {
   pro: { name: "Pro", features: { cloudSync: true, learningResources: true } },
 };
 
+/**
+ * AI helper questions per day (resets at midnight India time), per signed-in account. Enforced
+ * by the server (lib/ai/usage.ts) from the server-side plan; shown in the UI for information only.
+ * PROPOSED defaults (Phase 5, 2026-09-29) — owner to confirm.
+ */
+export const AI_DAILY_LIMITS: Record<PlanId, number> = { free: 10, pro: 50 };
+
 /** One-line summary used across pricing, the upgrade dialog and billing. */
 export const PLAN_SUMMARY = "All 455 DSA problems are free. Pro unlocks articles, videos, and cloud sync.";
 
@@ -133,11 +140,10 @@ export const FEATURE_MATRIX: FeatureRow[] = [
   {
     id: "ai-helper",
     label: "AI DSA helper",
-    description: "Hints, approaches, complexity and debugging help for each problem.",
-    free: "Limited daily questions when implemented",
-    pro: "Higher daily limit with fair-use limits when implemented",
-    availability: "planned",
-    phase: 5,
+    description: "Hints, approaches, complexity and debugging help for each problem. Needs a signed-in account with a verified email.",
+    free: "10 questions a day",
+    pro: "50 questions a day",
+    availability: "available",
   },
   {
     id: "analytics",

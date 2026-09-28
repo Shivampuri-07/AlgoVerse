@@ -287,9 +287,28 @@ prefix), so it is never in the browser bundle or any response. Pasted code is on
 the request; it isn't saved anywhere (the separate *Code / Solution* box on the problem
 page is your own saved notes, as before).
 
-Errors are shown in plain language: missing key, rejected key, **free limit / quota reached
-(429: "Free AI limit reached temporarily. Please wait a little and try again.")**, region
-not supported, timeouts, Gemini outages, blocked answers, and empty or malformed replies.
+**Who can use it (Phase 5):** a signed-in account with a **verified email**. Signed-out
+visitors see a "Log in / Sign up free" prompt instead of the chat; all 455 problems stay free
+and fully usable without an account. Limits are enforced on the server from the plan stored
+on the server (never from anything the browser sends):
+
+| | Free | Pro |
+|---|---|---|
+| Questions per day (resets 00:00 India time) | 10 | 50 |
+| Questions per minute | 5 | 5 |
+
+Plus a whole-app daily cap (`AI_GLOBAL_DAILY_LIMIT`, default 500) that protects the shared
+free Gemini quota. Counters live in Firestore (`aiUsage/{uid}`, `aiUsageGlobal/{day}`,
+server-only) and are updated in a transaction **before** Gemini is called, so they hold across
+serverless instances and parallel requests; a Gemini failure before any answer is refunded.
+Limits: `AI_DAILY_LIMITS` in `lib/plans.ts`; logic: `lib/ai/usage.ts`, `lib/ai/handler.ts`.
+Responses: 401 `sign_in_required`, 403 `verify_email` / `forbidden` (cross-site), 429
+`daily_limit` / `slow_down` / `busy` (with `Retry-After`), 503 `account_unavailable` (fails
+closed if accounts or the counter can't be checked).
+
+Errors are shown in plain language: setup problems (without naming server settings),
+**Gemini's shared free quota reached (429 `rate_limited`)**, region not supported, timeouts,
+Gemini outages, blocked answers, and empty or malformed replies.
 Raw Gemini error bodies are never sent to the browser. Free models are rate-limited and can
 be wrong — treat answers as hints to reason about.
 

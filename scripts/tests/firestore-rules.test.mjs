@@ -31,7 +31,8 @@ beforeEach(async () => {
     await db.doc("users/bob/progress/12").set({ completedAt: "2026-09-02" });
     await db.doc("users/bob/notes/12_note").set({ content: "bob's private note" });
     await db.doc("subscriptions/sub_alice").set({ uid: "alice", status: "active" });
-    await db.doc("aiUsage/alice_2026-09-27").set({ uid: "alice", requests: 1 });
+    await db.doc("aiUsage/alice").set({ day: "2026-09-27", count: 10, minuteStart: 0, minuteCount: 0 });
+    await db.doc("aiUsageGlobal/2026-09-27").set({ count: 400 });
     await db.doc("entitlements/alice").set({ plan: "pro" });
     await db.doc("users/alice/meta/state").set({ longestStreak: 3 });
   });
@@ -79,8 +80,14 @@ test("subscriptions and AI usage are server-only: no client reads or writes, eve
   await assertFails(alice().doc("subscriptions/sub_alice").get());
   await assertFails(alice().doc("subscriptions/sub_alice").set({ uid: "alice", status: "active", plan: "pro" }));
   await assertFails(alice().doc("subscriptions/forged").set({ uid: "alice", status: "active" }));
-  await assertFails(alice().doc("aiUsage/alice_2026-09-27").set({ uid: "alice", requests: 0 }));
-  await assertFails(alice().doc("aiUsage/alice_2026-09-27").get());
+  // AI usage counters (lib/ai/usage.ts): a user can't read, reset or delete their own count.
+  await assertFails(alice().doc("aiUsage/alice").get());
+  await assertFails(alice().doc("aiUsage/alice").set({ day: "2026-09-27", count: 0 }));
+  await assertFails(alice().doc("aiUsage/alice").update({ count: 0 }));
+  await assertFails(alice().doc("aiUsage/alice").delete());
+  await assertFails(alice().collection("aiUsage").get());
+  await assertFails(alice().doc("aiUsageGlobal/2026-09-27").get());
+  await assertFails(alice().doc("aiUsageGlobal/2026-09-27").set({ count: 0 }));
   await assertFails(alice().doc("webhookEvents/evt_1").set({}));
 });
 

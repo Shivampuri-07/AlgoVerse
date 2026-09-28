@@ -3,11 +3,12 @@ import {
   type AiErrorCode,
   type AiRequestBody,
   type AiStreamEvent,
+  type AiUsageView,
 } from "@/lib/ai/shared";
 
 export type AiResult =
-  | { ok: true; model?: string }
-  | { ok: false; code: AiErrorCode; message: string; aborted?: boolean };
+  | { ok: true; model?: string; usage?: AiUsageView }
+  | { ok: false; code: AiErrorCode; message: string; aborted?: boolean; usage?: AiUsageView };
 
 const KNOWN_CODES: readonly AiErrorCode[] = [
   "not_configured",
@@ -22,6 +23,13 @@ const KNOWN_CODES: readonly AiErrorCode[] = [
   "empty_response",
   "malformed_response",
   "network",
+  "sign_in_required",
+  "verify_email",
+  "forbidden",
+  "slow_down",
+  "daily_limit",
+  "busy",
+  "account_unavailable",
 ];
 
 function asCode(value: unknown, fallback: AiErrorCode): AiErrorCode {
@@ -41,6 +49,24 @@ function fallbackMessage(code: AiErrorCode): string {
 /** Our own server's message for an error, or a generic fallback. */
 function messageFrom(value: unknown, code: AiErrorCode): string {
   return typeof value === "string" && value.trim() ? value.slice(0, 400) : fallbackMessage(code);
+}
+
+function asUsage(value: unknown): AiUsageView | undefined {
+  const u = value as Partial<AiUsageView> | null | undefined;
+  return u && typeof u.limit === "number" && typeof u.remaining === "number" && typeof u.resetAt === "string"
+    ? (u as AiUsageView)
+    : undefined;
+}
+
+/** The signed-in user's AI allowance for today (display only — the server enforces it). */
+export async function fetchAiUsage(signal?: AbortSignal): Promise<AiUsageView | undefined> {
+  try {
+    const res = await fetch("/api/ai", { method: "GET", cache: "no-store", credentials: "same-origin", signal });
+    if (!res.ok) return undefined;
+    return asUsage(((await res.json()) as { usage?: unknown }).usage);
+  } catch {
+    return undefined;
+  }
 }
 
 let configuredOnce = false;
@@ -96,16 +122,19 @@ export async function streamAiReply(
   }
 
   if (!res.ok || !res.body) {
-    let code: AiErrorCode = res.status === 429 ? "rate_limited" : "provider_unavailable";
+    let code: AiErrorCode =
+      res.status === 401 ? "sign_in_required" : res.status === 429 ? "rate_limited" : "provider_unavailable";
     let message: unknown;
+    let usage: AiUsageView | undefined;
     try {
-      const data = (await res.json()) as { error?: { code?: unknown; message?: unknown } };
+      const data = (await res.json()) as { error?: { code?: unknown; message?: unknown }; usage?: AiUsageView };
       code = asCode(data?.error?.code, code);
       message = data?.error?.message;
+      usage = asUsage(data?.usage);
     } catch {
       /* non-JSON error body */
     }
-    return { ok: false, code, message: messageFrom(message, code) };
+    return { ok: false, code, message: messageFrom(message, code), ...(usage ? { usage } : {}) };
   }
 
   const reader = res.body.getReader();
@@ -137,8 +166,9 @@ export async function streamAiReply(
           const code = asCode(event.code, "provider_unavailable");
           return { ok: false, code, message: messageFrom(event.message, code) };
         } else if (event.type === "done") {
+          const usage = asUsage(event.usage);
           return received
-            ? { ok: true, model: event.model }
+            ? { ok: true, model: event.model, ...(usage ? { usage } : {}) }
             : { ok: false, code: "empty_response", message: AI_CLIENT_MESSAGES.empty_response };
         }
       }

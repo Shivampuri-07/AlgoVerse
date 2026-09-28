@@ -187,7 +187,12 @@ test("approved plans: all problems free; articles, videos and sync are Pro; conf
     assert.equal(row(id).pro, true, `${id} in Pro`);
     assert.equal(row(id).availability, "available");
   }
-  for (const id of ["ai-helper", "analytics", "interview-prep", "personal-roadmap"]) assert.equal(row(id).availability, "planned", `${id} planned`);
+  for (const id of ["analytics", "interview-prep", "personal-roadmap"]) assert.equal(row(id).availability, "planned", `${id} planned`);
+  // AI helper (Phase 5): both plans, daily limits from the same constant the server enforces.
+  assert.equal(row("ai-helper").availability, "available");
+  assert.equal(row("ai-helper").free, `${plans.AI_DAILY_LIMITS.free} questions a day`);
+  assert.equal(row("ai-helper").pro, `${plans.AI_DAILY_LIMITS.pro} questions a day`);
+  assert.ok(plans.AI_DAILY_LIMITS.pro > plans.AI_DAILY_LIMITS.free);
   assert.equal(plans.PLANS.free.features.learningResources, false);
   assert.equal(plans.PLANS.pro.features.learningResources, true);
   assert.equal(plans.PLANS.free.features.cloudSync, false);
@@ -197,8 +202,8 @@ test("approved plans: all problems free; articles, videos and sync are Pro; conf
   assert.equal(plans.PRICING.paymentsEnabled, false, "no checkout before Phase 4");
   assert.equal(plans.PLAN_SUMMARY, "All 455 DSA problems are free. Pro unlocks articles, videos, and cloud sync.");
   const { available, planned } = plans.proBenefits();
-  assert.deepEqual(available.map((r) => r.id), ["articles", "videos", "cloud-sync"]);
-  assert.deepEqual(planned.map((r) => r.id), ["ai-helper", "analytics", "interview-prep", "personal-roadmap"]);
+  assert.deepEqual(available.map((r) => r.id), ["articles", "videos", "cloud-sync", "ai-helper"]);
+  assert.deepEqual(planned.map((r) => r.id), ["analytics", "interview-prep", "personal-roadmap"]);
 });
 
 test("batching: requests and transactions stay within both a count and a byte budget", async () => {
