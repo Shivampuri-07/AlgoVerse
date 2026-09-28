@@ -13,7 +13,7 @@
  * Nothing is ever silently dropped.
  */
 import type { LegacyProgress } from "@/lib/types";
-import type { BookmarkDoc, MetaDoc, NoteDoc, NoteKind } from "@/lib/sync/types";
+import { SYNC_LIMITS, type BookmarkDoc, type MetaDoc, type NoteDoc, type NoteKind, type ThemePreference } from "@/lib/sync/types";
 
 export interface StoredProgress {
   completedAt: string | null;
@@ -53,6 +53,8 @@ export const CONFLICT_SEPARATOR = (at: number) =>
 export interface NoteMergeResult {
   next: Omit<NoteDoc, "id" | "kind"> | null;
   conflict: boolean;
+  /** Both texts together would exceed the size limit: nothing merged, the server keeps its text. */
+  overflow?: boolean;
 }
 
 export function mergeNote(
@@ -84,9 +86,12 @@ export function mergeNote(
   if (current.includes(incoming)) return { next: null, conflict: true }; // server already contains it
   const incomingNewer = op.at >= existing.at;
   const [first, second, secondAt] = incomingNewer ? [incoming, current, existing.at] : [current, incoming, op.at];
+  const merged = `${first}${CONFLICT_SEPARATOR(secondAt)}${second}`;
+  // Never truncate text to make it fit: keep the server copy, tell the device to keep its own.
+  if (merged.length > SYNC_LIMITS.maxNoteChars) return { next: null, conflict: true, overflow: true };
   return {
     next: {
-      content: `${first}${CONFLICT_SEPARATOR(secondAt)}${second}`,
+      content: merged,
       version: existing.version + 1,
       deleted: false,
       at: Math.max(op.at, existing.at),
@@ -140,12 +145,21 @@ export function legacyIsEmpty(l: LegacyProgress | null | undefined): boolean {
   );
 }
 
-export function mergeMeta(existing: MetaDoc | null, patch: { longest?: number; legacy?: LegacyProgress }): MetaDoc | null {
-  const cur: MetaDoc = existing ?? { longestStreak: 0, legacy: null };
+export function mergeMeta(
+  existing: MetaDoc | null,
+  patch: { longest?: number; legacy?: LegacyProgress; prefs?: { theme: ThemePreference; at: number } }
+): MetaDoc | null {
+  const cur: MetaDoc = existing ?? { longestStreak: 0, legacy: null, preferences: null };
   const longestStreak = patch.longest !== undefined ? Math.max(cur.longestStreak, Math.floor(patch.longest)) : cur.longestStreak;
   const legacy = patch.legacy !== undefined ? mergeLegacy(cur.legacy, patch.legacy) : cur.legacy;
-  const changed = longestStreak !== cur.longestStreak || JSON.stringify(legacy) !== JSON.stringify(cur.legacy);
-  return changed || !existing ? { longestStreak, legacy } : null;
+  // Preferences: last write wins by client time.
+  const preferences =
+    patch.prefs && (!cur.preferences || patch.prefs.at > cur.preferences.at) ? { ...patch.prefs } : cur.preferences ?? null;
+  const changed =
+    longestStreak !== cur.longestStreak ||
+    JSON.stringify(legacy) !== JSON.stringify(cur.legacy) ||
+    JSON.stringify(preferences) !== JSON.stringify(cur.preferences ?? null);
+  return changed || !existing ? { longestStreak, legacy, preferences } : null;
 }
 
 export type { NoteKind };

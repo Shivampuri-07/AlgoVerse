@@ -3,7 +3,7 @@
  * and to build the one-off "import this device" snapshot.
  */
 import type { CompletedMap, LegacyProgress } from "@/lib/types";
-import { NOTE_KINDS, noteKey, type NoteKind, type SyncOp } from "@/lib/sync/types";
+import { NOTE_KINDS, noteKey, opKey, type NoteKind, type SyncOp } from "@/lib/sync/types";
 import { legacyIsEmpty } from "@/lib/sync/merge";
 
 /** The synced part of the app store. */
@@ -89,8 +89,7 @@ export function snapshotIsEmpty(s: SyncSnapshot): boolean {
 export function coalesce(ops: SyncOp[]): SyncOp[] {
   const byKey = new Map<string, SyncOp>();
   for (const op of ops) {
-    const key =
-      op.t === "progress" ? `p:${op.id}` : op.t === "bookmark" ? `b:${op.id}` : op.t === "note" ? noteKey(op.id, op.kind) : op.t === "streak" ? "s" : "l";
+    const key = opKey(op);
     const prev = byKey.get(key);
     if (op.t === "note" && prev && prev.t === "note") byKey.set(key, { ...op, base: prev.base });
     else if (op.t === "streak" && prev && prev.t === "streak") byKey.set(key, { ...op, longest: Math.max(op.longest, prev.longest) });

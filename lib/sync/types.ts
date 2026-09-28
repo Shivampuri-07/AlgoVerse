@@ -15,7 +15,12 @@ export type SyncOp =
   /** base = server version this edit started from (0 = never synced). content "" = cleared. */
   | { t: "note"; id: number; kind: NoteKind; content: string; base: number; at: number }
   | { t: "streak"; longest: number; at: number }
-  | { t: "legacy"; legacy: LegacyProgress; at: number };
+  | { t: "legacy"; legacy: LegacyProgress; at: number }
+  /** Preferences (last write wins). */
+  | { t: "prefs"; theme: ThemePreference; at: number };
+
+export type ThemePreference = "light" | "dark" | "system";
+export const THEMES: readonly ThemePreference[] = ["light", "dark", "system"];
 
 /** Server documents, as returned by pulls and pushes. */
 export interface ProgressDoc {
@@ -40,6 +45,7 @@ export interface NoteDoc {
 export interface MetaDoc {
   longestStreak: number;
   legacy: LegacyProgress | null;
+  preferences: { theme: ThemePreference; at: number } | null;
 }
 
 export interface SyncChanges {
@@ -57,6 +63,11 @@ export interface PullResponse extends SyncChanges {
 export interface PushResponse extends SyncChanges {
   /** Note edits that met a newer server version and were merged (both texts kept). */
   conflicts: { id: number; kind: NoteKind }[];
+  /**
+   * Note edits NOT applied because keeping both versions would exceed the note size limit.
+   * The server keeps its version; the device keeps its own until the user picks one.
+   */
+  rejected: { id: number; kind: NoteKind; reason: "merge_too_long"; version: number }[];
 }
 
 export const SYNC_LIMITS = {
@@ -79,6 +90,8 @@ export function opKey(op: SyncOp): string {
       return "s";
     case "legacy":
       return "l";
+    case "prefs":
+      return "pf";
   }
 }
 

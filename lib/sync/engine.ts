@@ -14,7 +14,17 @@ import { create } from "zustand";
 import { useAppStore } from "@/lib/store";
 import { coalesce, diffSnapshots, importOps, snapshotIsEmpty, type SyncSnapshot } from "@/lib/sync/diff";
 import { EMPTY_LEGACY, mergeLegacy } from "@/lib/sync/merge";
-import { noteKey, opKey, SYNC_LIMITS, type PullResponse, type PushResponse, type SyncChanges, type SyncOp } from "@/lib/sync/types";
+import {
+  noteKey,
+  opKey,
+  SYNC_LIMITS,
+  type NoteKind,
+  type PullResponse,
+  type PushResponse,
+  type SyncChanges,
+  type SyncOp,
+  type ThemePreference,
+} from "@/lib/sync/types";
 
 export const SYNC_META_KEY = "algoverse-sync-meta";
 export const SYNC_OUTBOX_KEY = "algoverse-sync-outbox";
@@ -31,6 +41,16 @@ export interface SyncUiState {
   message: string | null;
   /** Note edits merged with a newer cloud version since this page loaded (both texts kept). */
   conflicts: number;
+  /** Notes kept on this device only (too long to sync, or too long to merge with the cloud copy). */
+  unsynced: UnsyncedNote[];
+}
+
+export interface UnsyncedNote {
+  key: string;
+  id: number;
+  kind: NoteKind;
+  reason: "too_long" | "merge_too_long";
+  chars: number;
 }
 
 export const useSyncStore = create<SyncUiState>(() => ({
@@ -39,6 +59,7 @@ export const useSyncStore = create<SyncUiState>(() => ({
   pending: 0,
   message: null,
   conflicts: 0,
+  unsynced: [],
 }));
 
 // ------------------------------------------------------------------ persisted meta + outbox
@@ -53,16 +74,38 @@ export interface SyncMeta {
   noteVersions: Record<string, number>;
   /** The user chose "keep on this device only" for this account. */
   declinedFor: string | null;
+  /** Last theme change known to this device (local or from the cloud). */
+  prefs: { theme: ThemePreference; at: number } | null;
+  /** Notes kept on this device only; cloud changes never overwrite them. */
+  unsyncedNotes: Record<string, { reason: UnsyncedNote["reason"]; serverVersion?: number }>;
 }
 
-const EMPTY_META: SyncMeta = { ownerUserId: null, cursor: 0, importedAt: null, noteVersions: {}, declinedFor: null };
+const EMPTY_META: SyncMeta = {
+  ownerUserId: null,
+  cursor: 0,
+  importedAt: null,
+  noteVersions: {},
+  declinedFor: null,
+  prefs: null,
+  unsyncedNotes: {},
+};
+
+/** A fresh meta object (never shares the default maps). */
+function freshMeta(over: Partial<SyncMeta> = {}): SyncMeta {
+  return {
+    ...EMPTY_META,
+    ...over,
+    noteVersions: { ...(over.noteVersions ?? {}) },
+    unsyncedNotes: { ...(over.unsyncedNotes ?? {}) },
+  };
+}
 
 export function readMeta(): SyncMeta {
   try {
     const raw = window.localStorage.getItem(SYNC_META_KEY);
-    return raw ? { ...EMPTY_META, ...(JSON.parse(raw) as Partial<SyncMeta>) } : { ...EMPTY_META };
+    return freshMeta(raw ? (JSON.parse(raw) as Partial<SyncMeta>) : {});
   } catch {
-    return { ...EMPTY_META };
+    return freshMeta();
   }
 }
 
@@ -72,6 +115,23 @@ function writeMeta(meta: SyncMeta) {
   } catch {
     /* storage full/unavailable: sync resumes from scratch next time (merge is idempotent) */
   }
+  publishUnsynced(meta);
+}
+
+const NOTE_FIELD: Record<NoteKind, "notes" | "mistakes" | "code"> = { note: "notes", mistakes: "mistakes", code: "code" };
+
+function publishUnsynced(meta: SyncMeta) {
+  const s = useAppStore.getState();
+  const unsynced: UnsyncedNote[] = Object.entries(meta.unsyncedNotes ?? {}).map(([key, v]) => {
+    const [, id, kind] = key.split(":");
+    const text = s[NOTE_FIELD[kind as NoteKind]]?.[Number(id)] ?? "";
+    return { key, id: Number(id), kind: kind as NoteKind, reason: v.reason, chars: text.length };
+  });
+  useSyncStore.setState({ unsynced });
+}
+
+function tooLong(op: SyncOp): boolean {
+  return op.t === "note" && op.content.length > SYNC_LIMITS.maxNoteChars;
 }
 
 interface Outbox {
@@ -83,7 +143,9 @@ function readOutbox(uid: string): SyncOp[] {
   try {
     const raw = window.localStorage.getItem(SYNC_OUTBOX_KEY);
     const box = raw ? (JSON.parse(raw) as Outbox) : null;
-    return box && box.uid === uid && Array.isArray(box.ops) ? box.ops : [];
+    // Over-long notes (e.g. queued by an older version) would make the server reject the whole
+    // request and stall sync: they never stay in the outbox.
+    return box && box.uid === uid && Array.isArray(box.ops) ? box.ops.filter((o) => !tooLong(o)) : [];
   } catch {
     return [];
   }
@@ -225,6 +287,8 @@ function pendingKeys(uid: string): Set<string> {
 function applyChanges(uid: string, changes: SyncChanges, mode: "merge" | "replace" = "merge") {
   const pending = mode === "merge" ? pendingKeys(uid) : new Set<string>();
   const meta = readMeta();
+  if (mode === "merge") for (const key of Object.keys(meta.unsyncedNotes ?? {})) pending.add(key); // keep local text
+  else meta.unsyncedNotes = {};
   const s = useAppStore.getState();
   const completed = mode === "replace" ? {} : { ...s.completed };
   const bookmarked = new Set(mode === "replace" ? [] : s.bookmarked);
@@ -259,6 +323,13 @@ function applyChanges(uid: string, changes: SyncChanges, mode: "merge" | "replac
     : mode === "replace"
       ? EMPTY_LEGACY
       : s.legacy;
+
+  // Preferences: last write wins; only a newer cloud change is applied on this device.
+  const remotePrefs = changes.meta?.preferences;
+  if (remotePrefs && !pending.has("pf") && remotePrefs.at > (meta.prefs?.at ?? 0)) {
+    meta.prefs = remotePrefs;
+    preferencesHandler?.apply(remotePrefs.theme);
+  }
 
   suppress = true;
   try {
@@ -315,6 +386,17 @@ async function pushNow(uid: string) {
     const remaining = readOutbox(uid).filter((o) => sent.get(opKey(o)) !== JSON.stringify(o));
     writeOutbox(uid, remaining);
     if (result.conflicts.length) useSyncStore.setState((s) => ({ conflicts: s.conflicts + result.conflicts.length }));
+    if (result.rejected?.length) {
+      // Both versions together are too long to keep: this device keeps its own text (never
+      // overwritten), the cloud keeps the other one, until the user picks.
+      const meta = readMeta();
+      for (const r of result.rejected) {
+        const key = noteKey(r.id, r.kind);
+        meta.unsyncedNotes[key] = { reason: "merge_too_long", serverVersion: r.version };
+        meta.noteVersions[key] = r.version;
+      }
+      writeMeta(meta);
+    }
     applyChanges(uid, result);
   }
 }
@@ -324,6 +406,10 @@ async function pullNow(uid: string) {
   const result = await request<PullResponse>("GET", `/api/sync?since=${meta.cursor}`);
   applyChanges(uid, result);
   writeMeta({ ...readMeta(), cursor: result.cursor });
+  // First sync of an account with no saved preference: upload this device's theme once.
+  if (meta.cursor === 0 && !result.meta?.preferences && preferencesHandler) {
+    recordPreference(preferencesHandler.current());
+  }
 }
 
 /** Push the outbox, then pull. Serialised: never two syncs at once. */
@@ -363,7 +449,69 @@ function schedulePush() {
 }
 
 function enqueue(uid: string, ops: SyncOp[]) {
-  writeOutbox(uid, coalesce([...readOutbox(uid), ...ops]));
+  const meta = readMeta();
+  let metaChanged = false;
+  const accepted: SyncOp[] = [];
+  for (const op of ops) {
+    if (op.t !== "note") {
+      accepted.push(op);
+      continue;
+    }
+    const key = noteKey(op.id, op.kind);
+    if (tooLong(op)) {
+      // Too long to sync: stays on this device only (and is never overwritten by cloud changes).
+      meta.unsyncedNotes[key] = { reason: "too_long" };
+      metaChanged = true;
+      continue;
+    }
+    const flag = meta.unsyncedNotes[key];
+    if (flag) {
+      // A new edit within the limit is the user's chosen version: it replaces the cloud copy.
+      delete meta.unsyncedNotes[key];
+      metaChanged = true;
+      accepted.push(flag.serverVersion !== undefined ? { ...op, base: flag.serverVersion } : op);
+      continue;
+    }
+    accepted.push(op);
+  }
+  if (metaChanged) writeMeta(meta);
+  if (accepted.length) writeOutbox(uid, coalesce([...readOutbox(uid), ...accepted]));
+  else if (metaChanged) publishUnsynced(meta);
+}
+
+// ------------------------------------------------------------------ preferences (theme)
+
+let preferencesHandler: { current: () => ThemePreference; apply: (theme: ThemePreference) => void } | null = null;
+
+/** The theme provider registers how to read and apply the theme (a cookie, not in the store). */
+export function registerPreferencesHandler(handler: typeof preferencesHandler) {
+  preferencesHandler = handler;
+}
+
+/** A theme change made on this device (last write wins across devices). */
+export function recordPreference(theme: ThemePreference) {
+  const meta = readMeta();
+  const at = Date.now();
+  writeMeta({ ...meta, prefs: { theme, at } });
+  const owner = meta.ownerUserId;
+  if (owner) recordFor(owner, [{ t: "prefs", theme, at }]);
+}
+
+/**
+ * "Use this device's version" for a note whose two versions were too long to merge: uploads
+ * the local text as the new cloud version (only if it's within the size limit).
+ */
+export function uploadDeviceNote(key: string): boolean {
+  const meta = readMeta();
+  const flag = meta.unsyncedNotes[key];
+  const owner = meta.ownerUserId;
+  if (!flag || !owner) return false;
+  const [, id, kind] = key.split(":");
+  const content = useAppStore.getState()[NOTE_FIELD[kind as NoteKind]]?.[Number(id)] ?? "";
+  if (content.length > SYNC_LIMITS.maxNoteChars) return false;
+  enqueue(owner, [{ t: "note", id: Number(id), kind: kind as NoteKind, content, base: flag.serverVersion ?? 0, at: Date.now() }]);
+  schedulePush();
+  return true;
 }
 
 /** Start syncing the store with `uid`'s cloud data. The store must already be hydrated. */
@@ -393,6 +541,7 @@ export function startSync(uid: string) {
     },
   };
   useSyncStore.setState({ pending: readOutbox(uid).length, message: null });
+  publishUnsynced(readMeta());
   void syncNow();
 }
 
@@ -447,7 +596,7 @@ export async function switchToCloudAndStart(uid: string): Promise<string> {
   const backupKey = backupLocalData(`switch to account ${uid.slice(0, 6)}…`);
   stopSync();
   const cloud = await request<PullResponse>("GET", "/api/sync?since=0");
-  writeMeta({ ...EMPTY_META, ownerUserId: uid, cursor: cloud.cursor });
+  writeMeta(freshMeta({ ownerUserId: uid, cursor: cloud.cursor, prefs: readMeta().prefs }));
   try {
     window.localStorage.removeItem(SYNC_OUTBOX_KEY); // the other account's unsent changes are in the backup
   } catch {

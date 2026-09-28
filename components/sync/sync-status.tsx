@@ -6,7 +6,51 @@ import { useSyncSetup } from "@/components/sync/sync-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { syncNow, useSyncStore, type SyncStatus } from "@/lib/sync/engine";
+import Link from "next/link";
+import { getProblemById } from "@/data/problems";
+import { syncNow, uploadDeviceNote, useSyncStore, type SyncStatus, type UnsyncedNote } from "@/lib/sync/engine";
+import { SYNC_LIMITS } from "@/lib/sync/types";
+
+const KIND_LABEL: Record<UnsyncedNote["kind"], string> = { note: "notes", mistakes: "mistakes", code: "code" };
+
+function UnsyncedNotes({ items }: { items: UnsyncedNote[] }) {
+  if (!items.length) return null;
+  return (
+    <div className="space-y-2 rounded-lg border border-warning/40 bg-warning/5 px-3 py-2.5" data-testid="unsynced-notes">
+      <p className="font-medium">Kept on this device only</p>
+      <ul className="space-y-2">
+        {items.map((n) => {
+          const p = getProblemById(n.id);
+          const title = p ? p.title : `Problem ${n.id}`;
+          return (
+            <li key={n.key} className="space-y-1 text-muted-foreground">
+              <p>
+                <Link href={`/problems/${n.id}`} className="font-medium text-foreground hover:underline">
+                  {title}
+                </Link>{" "}
+                ({KIND_LABEL[n.kind]}, {n.chars.toLocaleString()} characters):{" "}
+                {n.reason === "too_long"
+                  ? `longer than the ${SYNC_LIMITS.maxNoteChars.toLocaleString()}-character sync limit. It's saved here; shorten it and it syncs again.`
+                  : "changed on another device too, and both versions together are too long to keep in one note. This device keeps its version; your other devices keep theirs."}
+              </p>
+              {n.reason === "merge_too_long" && n.chars <= SYNC_LIMITS.maxNoteChars && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (uploadDeviceNote(n.key)) void syncNow();
+                  }}
+                >
+                  Use this device&apos;s version everywhere
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
 
 const LABEL: Record<SyncStatus, string> = {
   off: "Sync off",
@@ -58,7 +102,7 @@ export function SyncIndicator() {
 /** Account page card: what sync is doing, or why it's off. */
 export function SyncCard() {
   const { entitlements, openSetup, pausedOnDevice } = useSyncSetup();
-  const { status, lastSyncedAt, pending, message, conflicts } = useSyncStore();
+  const { status, lastSyncedAt, pending, message, conflicts, unsynced } = useSyncStore();
   const [, force] = React.useReducer((x: number) => x + 1, 0);
   React.useEffect(() => {
     const id = setInterval(force, 30_000);
@@ -74,7 +118,7 @@ export function SyncCard() {
         </CardTitle>
         <CardDescription>
           {available
-            ? "Keeps your progress, bookmarks, notes and streak the same on every device you sign in on."
+            ? "Keeps your progress, bookmarks, notes, streak and theme the same on every device you sign in on."
             : "Keeps your progress the same on every device. Cloud sync is part of AlgoVerse Pro (coming soon) — your progress stays saved on this device either way."}
         </CardDescription>
       </CardHeader>
@@ -106,6 +150,7 @@ export function SyncCard() {
                   in the note, marked &quot;Conflicting copy&quot;.
                 </p>
               )}
+              <UnsyncedNotes items={unsynced} />
               <Button variant="outline" size="sm" onClick={() => void syncNow()} disabled={status === "syncing"}>
                 <RefreshCw className="h-4 w-4" />
                 Sync now

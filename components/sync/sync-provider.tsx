@@ -4,6 +4,8 @@ import * as React from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useTheme } from "@/components/providers/theme-provider";
+import type { ThemePreference } from "@/lib/theme";
 import { useAppStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +20,8 @@ import type { EntitlementsView } from "@/lib/plans";
 import {
   declineSync,
   ensureJournal,
+  recordPreference,
+  registerPreferencesHandler,
   setSyncIdentity,
   importDeviceAndStart,
   isSyncRunning,
@@ -67,6 +71,35 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   const [busy, setBusy] = React.useState(false);
   const [pausedOnDevice, setPausedOnDevice] = React.useState(false);
   const uid = status === "signed-in" ? user?.uid ?? null : null;
+
+  // Theme preference sync (the theme is a cookie, not part of the progress store).
+  const { theme, setTheme } = useTheme();
+  const themeRef = React.useRef(theme);
+  themeRef.current = theme;
+  const remoteTheme = React.useRef<ThemePreference | null>(null);
+  React.useEffect(() => {
+    registerPreferencesHandler({
+      current: () => themeRef.current,
+      apply: (t) => {
+        if (t === themeRef.current) return;
+        remoteTheme.current = t; // applied from the cloud: don't send it back
+        setTheme(t);
+      },
+    });
+    return () => registerPreferencesHandler(null);
+  }, [setTheme]);
+  const firstTheme = React.useRef(true);
+  React.useEffect(() => {
+    if (firstTheme.current) {
+      firstTheme.current = false;
+      return;
+    }
+    if (remoteTheme.current === theme) {
+      remoteTheme.current = null;
+      return;
+    }
+    recordPreference(theme);
+  }, [theme]);
 
   // The change journal starts as soon as the store is loaded; it knows who's signed in.
   React.useEffect(() => {

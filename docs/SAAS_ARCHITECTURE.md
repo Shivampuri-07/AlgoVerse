@@ -20,7 +20,7 @@ Nothing in this document is legal, tax or financial advice.
 | Phase | Status |
 |---|---|
 | 1. Accounts | Done: email/password, verification (fixed-expiry escalating pause), Google Sign-In + linking, server sessions, account page. Tested on the emulators; Google linking confirmed by the owner on a Preview deployment. |
-| 2. Cloud sync (Pro) | Done: outbox + change journal, server merge with §5 conflict rules (Firestore transactions), first-login import dialog, other-account switch with local backup, status indicator + account card, sync-aware reset/import, two-device and offline browser tests (emulators). Not yet exercised on the real project. |
+| 2. Cloud sync (Pro) | Done: outbox + change journal, server merge with §5 conflict rules (Firestore transactions), first-login import dialog, other-account switch with local backup, status indicator + account card, sync-aware reset/import, **theme preference sync (last write wins)**, **notes over 50,000 characters kept on the device and listed, never blocking other sync; two versions too long to merge are never truncated (each device keeps its own until the user picks one)**. Two-device, offline, theme and long-note browser tests (emulators). Not yet exercised on the real project. |
 | 3. Plans & entitlements | Started only where Phase 2 needs it: `lib/plans.ts`, `lib/entitlements.ts`, `GET /api/me/entitlements`. Pricing page, upgrade dialog and billing UI are still to do. |
 
 ### Firestore layout (replaces section 4 for implementation)

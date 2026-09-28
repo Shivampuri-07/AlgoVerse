@@ -911,3 +911,46 @@ test("sync: a device holding another account's data asks before touching it, and
   assert.equal(cloudB.progress.length, 0, "A's progress was not merged into B");
   await context.close();
 });
+
+test("sync: theme changes follow you to your other device", async () => {
+  const email = `sync-theme-${Date.now()}@example.com`;
+  const a = await newPage(CONFIGURED);
+  await signUpInUi(a.page, email);
+  await grantProInEmulator((await profileOf(a.page)).uid);
+  await a.page.reload();
+  await waitSynced(a.page);
+  const b = await newPage(CONFIGURED);
+  await logInInUi(b.page, email);
+  await waitSynced(b.page);
+
+  await a.page.goto("/settings");
+  await a.page.getByRole("button", { name: "Toggle theme" }).first().click();
+  await a.page.getByRole("menuitem", { name: /Dark/ }).click();
+  await waitCloud(a.page, (c) => c.meta?.preferences?.theme === "dark", "dark theme in the cloud");
+  await b.page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await b.page.waitForFunction(() => document.documentElement.classList.contains("dark"), null, { timeout: 20_000 });
+  assert.ok((await b.context.cookies()).some((c) => c.name === "dsa-theme" && c.value === "dark"), "device B saved it");
+  await a.context.close();
+  await b.context.close();
+});
+
+test("sync: a note over 50,000 characters stays on the device, is listed, and doesn't stall other syncing", async () => {
+  const email = `sync-long-${Date.now()}@example.com`;
+  const { context, page } = await newPage(CONFIGURED);
+  await signUpInUi(page, email);
+  await grantProInEmulator((await profileOf(page)).uid);
+  await page.reload();
+  await waitSynced(page);
+  await page.goto("/problems/8");
+  await page.locator("#notes").fill("n".repeat(50_010));
+  await page.waitForTimeout(1500);
+  await page.getByRole("button", { name: "Mark Completed" }).click();
+  await waitCloud(page, (c) => c.progress.some((p) => p.id === 8 && !p.deleted), "other changes still sync");
+  const cloud = await cloudOf(page);
+  assert.ok(!cloud.notes.some((n) => n.id === 8), "the over-long note wasn't uploaded");
+  assert.equal((await storeOf(page)).notes["8"].length, 50_010, "and it's intact on the device");
+  await page.goto("/account");
+  await page.getByTestId("unsynced-notes").waitFor();
+  assert.match(await page.getByTestId("unsynced-notes").innerText(), /50,010 characters\): longer than the 50,000-character sync limit/);
+  await context.close();
+});

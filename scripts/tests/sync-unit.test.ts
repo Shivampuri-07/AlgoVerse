@@ -143,3 +143,33 @@ test("request validation rejects malformed or oversized ops", () => {
     assert.equal(parseOps(bad), null, `rejects ${JSON.stringify(bad)?.slice(0, 60)}`);
   }
 });
+
+test("notes: if keeping both versions would exceed the size limit, nothing is merged or truncated", () => {
+  const big = "x".repeat(30_000);
+  const server = { content: big, version: 2, deleted: false, at: T + 100 };
+  const r = merge.mergeNote(server, { content: "y".repeat(30_000), base: 1, at: T + 200 });
+  assert.deepEqual(r, { next: null, conflict: true, overflow: true });
+  // Within the limit the normal "keep both" merge still applies.
+  const small = merge.mergeNote({ ...server, content: "a" }, { content: "b", base: 1, at: T + 200 });
+  assert.equal(small.overflow, undefined);
+  assert.equal(small.conflict, true);
+});
+
+test("preferences: last write wins by client time", () => {
+  const m1 = merge.mergeMeta(null, { prefs: { theme: "dark", at: T } })!;
+  assert.deepEqual(m1.preferences, { theme: "dark", at: T });
+  assert.equal(merge.mergeMeta(m1, { prefs: { theme: "light", at: T - 1 } }), null, "older change ignored");
+  assert.deepEqual(merge.mergeMeta(m1, { prefs: { theme: "light", at: T + 1 } })!.preferences, { theme: "light", at: T + 1 });
+  const withStreak = merge.mergeMeta(m1, { longest: 4 })!;
+  assert.deepEqual(withStreak.preferences, m1.preferences, "other meta updates keep preferences");
+});
+
+test("preference ops are validated and coalesced", () => {
+  assert.deepEqual(parseOps([{ t: "prefs", theme: "dark", at: T }]), [{ t: "prefs", theme: "dark", at: T }]);
+  assert.equal(parseOps([{ t: "prefs", theme: "blue", at: T }]), null);
+  const out = diff.coalesce([
+    { t: "prefs", theme: "dark", at: T },
+    { t: "prefs", theme: "system", at: T + 1 },
+  ]);
+  assert.deepEqual(out, [{ t: "prefs", theme: "system", at: T + 1 }]);
+});

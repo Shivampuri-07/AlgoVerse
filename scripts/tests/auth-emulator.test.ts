@@ -336,3 +336,26 @@ test("sync: pulls are incremental (cursor) and include later changes", async () 
   const quieter = await (await pull(a.cookie, quiet.cursor)).json();
   assert.equal(quieter.bookmarks.length + quieter.progress.length + quieter.notes.length, 0, "a quiet account returns nothing (no endless repeats)");
 });
+
+test("sync: theme preference round-trips (last write wins); a too-long merge is rejected, not truncated", async () => {
+  const a = await newSession(`prefs-${Date.now()}@example.com`);
+  await grantPro(a.uid);
+  await push(a.cookie, [{ t: "prefs", theme: "dark", at: T0 + 10 }]);
+  await push(a.cookie, [{ t: "prefs", theme: "light", at: T0 + 5 }]); // older: ignored
+  assert.deepEqual((await (await pull(a.cookie, 0)).json()).meta.preferences, { theme: "dark", at: T0 + 10 });
+
+  const big = (c: string) => c.repeat(30_000);
+  await push(a.cookie, [{ t: "note", id: 20, kind: "code", content: big("a"), base: 0, at: T0 }]);
+  await push(a.cookie, [{ t: "note", id: 20, kind: "code", content: big("b"), base: 1, at: T0 + 1 }]); // v2
+  const res = await (await push(a.cookie, [{ t: "note", id: 20, kind: "code", content: big("c"), base: 1, at: T0 + 2 }])).json();
+  assert.deepEqual(res.rejected, [{ id: 20, kind: "code", reason: "merge_too_long", version: 2 }]);
+  const doc = (await getAdminDb()!.doc(`users/${a.uid}/notes/20_code`).get()).data();
+  assert.equal(doc?.content, big("b"), "server copy unchanged");
+  assert.equal(doc?.version, 2);
+  // Choosing this device's version (base = server version) replaces it.
+  const pick = await (await push(a.cookie, [{ t: "note", id: 20, kind: "code", content: big("c"), base: 2, at: T0 + 3 }])).json();
+  assert.equal(pick.rejected.length, 0);
+  assert.equal((await getAdminDb()!.doc(`users/${a.uid}/notes/20_code`).get()).data()?.content, big("c"));
+  // A note over the limit is rejected at validation (the client never sends one).
+  assert.equal((await push(a.cookie, [{ t: "note", id: 21, kind: "note", content: "z".repeat(50_001), base: 0, at: T0 }])).status, 400);
+});

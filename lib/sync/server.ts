@@ -12,6 +12,8 @@ import { mergeBookmark, mergeMeta, mergeNote, mergeProgress, type StoredProgress
 import {
   NOTE_KINDS,
   SYNC_LIMITS,
+  THEMES,
+  type ThemePreference,
   type BookmarkDoc,
   type MetaDoc,
   type NoteDoc,
@@ -88,6 +90,10 @@ export function parseOps(raw: unknown): SyncOp[] | null {
         if (!isLegacy(o.legacy)) return null;
         out.push({ t: "legacy", legacy: o.legacy, at: o.at });
         break;
+      case "prefs":
+        if (!THEMES.includes(o.theme as ThemePreference)) return null;
+        out.push({ t: "prefs", theme: o.theme as ThemePreference, at: o.at });
+        break;
       default:
         return null;
     }
@@ -113,7 +119,10 @@ function noteDoc(d: FirebaseFirestore.DocumentData): NoteDoc {
 }
 function metaDoc(d: FirebaseFirestore.DocumentData | undefined): MetaDoc | null {
   if (!d) return null;
-  return { longestStreak: Number(d.longestStreak) || 0, legacy: (d.legacy as LegacyProgress | null) ?? null };
+  const p = d.preferences as { theme?: unknown; at?: unknown } | null | undefined;
+  const preferences =
+    p && THEMES.includes(p.theme as ThemePreference) && typeof p.at === "number" ? { theme: p.theme as ThemePreference, at: p.at } : null;
+  return { longestStreak: Number(d.longestStreak) || 0, legacy: (d.legacy as LegacyProgress | null) ?? null, preferences };
 }
 
 /**
@@ -122,7 +131,7 @@ function metaDoc(d: FirebaseFirestore.DocumentData | undefined): MetaDoc | null 
  */
 export async function pushOps(db: Firestore, uid: string, ops: SyncOp[]): Promise<PushResponse> {
   const user = userDoc(db, uid);
-  const result: PushResponse = { progress: [], bookmarks: [], notes: [], meta: null, conflicts: [] };
+  const result: PushResponse = { progress: [], bookmarks: [], notes: [], meta: null, conflicts: [], rejected: [] };
   // ≤ 200 docs per transaction (Firestore's limit is 500 writes).
   for (let i = 0; i < ops.length; i += 200) {
     const chunk = ops.slice(i, i + 200);
@@ -159,12 +168,16 @@ export async function pushOps(db: Firestore, uid: string, ops: SyncOp[]): Promis
           if (next) current.set(path, { ...next });
         } else if (op.t === "note") {
           const prev = existing ? { content: existing.content ?? "", version: Number(existing.version) || 0, deleted: existing.deleted === true, at: Number(existing.at) || 0 } : null;
-          const { next, conflict } = mergeNote(prev, op);
+          const { next, conflict, overflow } = mergeNote(prev, op);
           if (next) current.set(path, { problemId: op.id, kind: op.kind, ...next });
-          if (conflict) result.conflicts.push({ id: op.id, kind: op.kind });
+          if (overflow) result.rejected.push({ id: op.id, kind: op.kind, reason: "merge_too_long", version: prev?.version ?? 0 });
+          else if (conflict) result.conflicts.push({ id: op.id, kind: op.kind });
         } else {
           const prev = metaDoc(existing);
-          const next = mergeMeta(prev, op.t === "streak" ? { longest: op.longest } : { legacy: op.legacy });
+          const next = mergeMeta(
+            prev,
+            op.t === "streak" ? { longest: op.longest } : op.t === "legacy" ? { legacy: op.legacy } : { prefs: { theme: op.theme, at: op.at } }
+          );
           if (next) current.set(path, { ...next });
         }
         if (current.get(path) !== existing) touched.add(path);
