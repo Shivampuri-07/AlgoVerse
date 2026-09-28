@@ -7,8 +7,9 @@
  *   users/{uid}/notes/{id}_{kind}      { problemId, kind, content, version, deleted, at, updatedAt }
  *   users/{uid}/meta/state             { longestStreak, legacy, updatedAt }
  */
-import { FieldValue, Timestamp, type DocumentReference, type Firestore } from "firebase-admin/firestore";
+import { FieldPath, FieldValue, Timestamp, type DocumentReference, type Firestore } from "firebase-admin/firestore";
 import { mergeBookmark, mergeMeta, mergeNote, mergeProgress, type StoredProgress } from "@/lib/sync/merge";
+import { chunkOps } from "@/lib/sync/batch";
 import {
   NOTE_KINDS,
   SYNC_LIMITS,
@@ -132,9 +133,8 @@ function metaDoc(d: FirebaseFirestore.DocumentData | undefined): MetaDoc | null 
 export async function pushOps(db: Firestore, uid: string, ops: SyncOp[]): Promise<PushResponse> {
   const user = userDoc(db, uid);
   const result: PushResponse = { progress: [], bookmarks: [], notes: [], meta: null, conflicts: [], rejected: [] };
-  // ≤ 200 docs per transaction (Firestore's limit is 500 writes).
-  for (let i = 0; i < ops.length; i += 200) {
-    const chunk = ops.slice(i, i + 200);
+  // Each transaction stays within a doc count AND a size budget (long notes add up quickly).
+  for (const chunk of chunkOps(ops, SYNC_LIMITS.maxTransactionOps, SYNC_LIMITS.maxTransactionBytes)) {
     await db.runTransaction(async (tx) => {
       const refs = new Map<string, DocumentReference>();
       const refFor = (op: SyncOp): DocumentReference => {
@@ -200,21 +200,84 @@ export async function pushOps(db: Firestore, uid: string, ops: SyncOp[]): Promis
 }
 
 /**
- * Everything changed since `since` (ms, server time). since=0 → the full account state.
- * The returned cursor is the server's clock at query time minus a small overlap, so a write
- * that commits while this query runs is picked up by the next pull (at most one repeat; applying
- * a doc twice is harmless) and a quiet account returns nothing on later pulls.
+ * Notes page cursor: "<updatedAt seconds>.<nanos>~<note doc id>" — the position after the last
+ * note sent. Values, not a document snapshot, so a note edited on another device while the pages
+ * load can't shift the position and make later notes be skipped.
  */
-export async function pullChanges(db: Firestore, uid: string, since: number, now = Date.now()): Promise<PullResponse> {
+export const NOTE_CURSOR_RE = /^\d{1,12}\.\d{1,9}~\d{1,6}_(note|mistakes|code)$/;
+function encodeNoteCursor(at: Timestamp, id: string): string {
+  return `${at.seconds}.${at.nanoseconds}~${id}`;
+}
+function decodeNoteCursor(cursor: string): [Timestamp, string] {
+  const [time, id] = cursor.split("~");
+  const [seconds, nanos] = time.split(".").map(Number);
+  return [new Timestamp(seconds, nanos), id];
+}
+
+/**
+ * Everything changed since `since` (ms, server time). since=0 → the full account state.
+ *
+ * Responses stay under Vercel's 4.5 MB body limit: progress, bookmarks and meta are small and
+ * come in the first page; notes are paged by encoded size (≤ maxPullPageBytes), ordered by
+ * updatedAt (ties broken by document id). When `more` is true, ask again with the same `since`
+ * and `notesAfter`; the returned `cursor` from the FIRST page is the one to keep.
+ *
+ * The cursor is the server's clock at query time minus a small overlap, so a write that commits
+ * while this query runs is picked up by the next pull (at most one repeat; applying a doc twice
+ * is harmless) and a quiet account returns nothing on later pulls.
+ */
+export async function pullChanges(
+  db: Firestore,
+  uid: string,
+  since: number,
+  now = Date.now(),
+  notesAfter: string | null = null,
+  pageBytes: number = SYNC_LIMITS.maxPullPageBytes
+): Promise<PullResponse> {
   const user = userDoc(db, uid);
   const cursor = Math.max(since, now - OVERLAP_MS);
   const from = Timestamp.fromMillis(since);
-  const query = (col: string) => (since > 0 ? user.collection(col).where("updatedAt", ">", from) : user.collection(col));
-  const [p, b, n, m] = await Promise.all([query("progress").get(), query("bookmarks").get(), query("notes").get(), user.collection("meta").doc("state").get()]);
-  const progress = p.docs.map((d) => progressDoc(Number(d.id), d.data()));
-  const bookmarks = b.docs.map((d) => bookmarkDoc(Number(d.id), d.data()));
-  const notes = n.docs.map((d) => noteDoc(d.data()));
-  const md = m.exists ? m.data() : undefined;
+  const changed = (col: string) => (since > 0 ? user.collection(col).where("updatedAt", ">", from) : user.collection(col));
+  const firstPage = notesAfter === null;
+
+  let notesQuery = changed("notes").orderBy("updatedAt").orderBy(FieldPath.documentId());
+  if (notesAfter) notesQuery = notesQuery.startAfter(...decodeNoteCursor(notesAfter));
+  const NOTE_DOCS_PER_QUERY = 500;
+  const [p, b, n, m] = await Promise.all([
+    firstPage ? changed("progress").get() : null,
+    firstPage ? changed("bookmarks").get() : null,
+    notesQuery.limit(NOTE_DOCS_PER_QUERY).get(),
+    firstPage ? user.collection("meta").doc("state").get() : null,
+  ]);
+
+  const notes: NoteDoc[] = [];
+  let bytes = 0;
+  let last: string | null = null;
+  let truncated = false;
+  for (const d of n.docs) {
+    const doc = noteDoc(d.data());
+    const size = Buffer.byteLength(JSON.stringify(doc), "utf8") + 1; // as it will be sent
+    if (notes.length > 0 && bytes + size > pageBytes) {
+      truncated = true;
+      break;
+    }
+    notes.push(doc);
+    bytes += size;
+    last = d.get("updatedAt") instanceof Timestamp ? encodeNoteCursor(d.get("updatedAt"), d.id) : null;
+  }
+  const more = truncated || n.docs.length === NOTE_DOCS_PER_QUERY;
+
+  const progress = p ? p.docs.map((d) => progressDoc(Number(d.id), d.data())) : [];
+  const bookmarks = b ? b.docs.map((d) => bookmarkDoc(Number(d.id), d.data())) : [];
+  const md = m && m.exists ? m.data() : undefined;
   const metaChanged = md && (since === 0 || (md.updatedAt instanceof Timestamp && md.updatedAt.toMillis() > since));
-  return { progress, bookmarks, notes, meta: metaChanged ? metaDoc(md) : null, cursor };
+  return {
+    progress,
+    bookmarks,
+    notes,
+    meta: metaChanged ? metaDoc(md) : null,
+    cursor,
+    more,
+    notesAfter: more ? last : null,
+  };
 }

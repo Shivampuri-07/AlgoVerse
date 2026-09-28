@@ -360,6 +360,59 @@ test("sync: theme preference round-trips (last write wins); a too-long merge is 
   assert.equal((await push(a.cookie, [{ t: "note", id: 21, kind: "note", content: "z".repeat(50_001), base: 0, at: T0 }])).status, 400);
 });
 
+test("sync: a heavy account (≈5 MB of notes) pushes in size-bounded chunks and pulls in pages under the body limit", async () => {
+  const a = await newSession(`heavy-${Date.now()}@example.com`);
+  await grantPro(a.uid);
+  const note = (id: number) => ({ t: "note", id, kind: "code", content: `${id}:`.padEnd(45_000, "é"), base: 0, at: T0 });
+  const all = Array.from({ length: 120 }, (_, i) => note(i + 1));
+  // One oversized-in-bytes request (as an old client might send) is still applied safely server-side:
+  // transactions are chunked by size, so Firestore's limits aren't hit.
+  const { takeBatch } = await import("@/lib/sync/batch");
+  let rest = all;
+  while (rest.length) {
+    const batch = takeBatch(rest as never, 500, 1_500_000);
+    assert.ok(JSON.stringify({ ops: batch }).length < 4_500_000);
+    const res = await push(a.cookie, batch);
+    assert.equal(res.status, 200);
+    rest = rest.slice(batch.length);
+  }
+  // Pull everything from scratch, page by page.
+  const seen = new Map<number, string>();
+  let after: string | null = null;
+  let pages = 0;
+  let cursor = 0;
+  for (;;) {
+    const url: string = `${ORIGIN}/api/sync?since=0${after ? `&notesAfter=${encodeURIComponent(after)}` : ""}`;
+    const res = await syncRoute.GET(new Request(url, { headers: { cookie: a.cookie } }));
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    assert.ok(Buffer.byteLength(text) < 4_500_000, `page ${pages} is ${Buffer.byteLength(text)} bytes`);
+    const page = JSON.parse(text);
+    if (pages === 0) cursor = page.cursor;
+    else assert.equal(page.progress.length + page.bookmarks.length, 0, "small collections only on the first page");
+    for (const n of page.notes) {
+      // Only the note edited mid-pull may come again (its newer version, now at the end).
+      assert.ok(!seen.has(n.id) || (n.id === 1 && n.content === "edited"), "no note repeated across pages");
+      seen.set(n.id, n.content);
+    }
+    pages++;
+    if (!page.more) {
+      assert.equal(page.notesAfter, null);
+      break;
+    }
+    // Editing a note already sent doesn't make later notes be skipped.
+    if (pages === 1) await push(a.cookie, [{ ...note(1), content: "edited", base: 1, at: T0 + 1 }]);
+    after = page.notesAfter;
+  }
+  assert.ok(pages >= 3, `paged (${pages} pages)`);
+  assert.equal(seen.get(1), "edited", "the edit made during the pull arrives in the same pull");
+  for (let id = 2; id <= 120; id++) assert.equal(seen.get(id), note(id).content, `note ${id} intact`);
+  assert.ok(cursor > 0);
+  // A malformed page cursor is a bad request.
+  const bad = await syncRoute.GET(new Request(`${ORIGIN}/api/sync?since=0&notesAfter=../x`, { headers: { cookie: a.cookie } }));
+  assert.equal(bad.status, 400);
+});
+
 // ---------------------------------------------------------------- Pro learning resources API
 
 const resourcesRoute = await import("@/app/api/resources/[id]/route");

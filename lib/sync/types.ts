@@ -56,8 +56,11 @@ export interface SyncChanges {
 }
 
 export interface PullResponse extends SyncChanges {
-  /** Pass back as `since` on the next pull (server time, ms). */
+  /** Pass back as `since` on the next pull (server time, ms). Only final once `more` is false. */
   cursor: number;
+  /** More notes remain for this pull: request again with the same `since` and `notesAfter`. */
+  more: boolean;
+  notesAfter: string | null;
 }
 
 export interface PushResponse extends SyncChanges {
@@ -75,6 +78,15 @@ export const SYNC_LIMITS = {
   maxProblemId: 100_000,
   maxNoteChars: 50_000,
   maxLegacyBytes: 200_000,
+  /**
+   * Vercel Functions reject request AND response bodies over 4.5 MB (413
+   * FUNCTION_PAYLOAD_TOO_LARGE). Pushes are split to stay well below that, pulls are paged.
+   */
+  maxRequestBytes: 1_500_000,
+  maxPullPageBytes: 2_000_000,
+  /** Per Firestore transaction (Firestore's own limit is ~10 MB). */
+  maxTransactionBytes: 4_000_000,
+  maxTransactionOps: 200,
 } as const;
 
 /** Stable key for coalescing ops and matching server docs. */

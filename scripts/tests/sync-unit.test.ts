@@ -200,3 +200,24 @@ test("approved plans: all problems free; articles, videos and sync are Pro; conf
   assert.deepEqual(available.map((r) => r.id), ["articles", "videos", "cloud-sync"]);
   assert.deepEqual(planned.map((r) => r.id), ["ai-helper", "analytics", "interview-prep", "personal-roadmap"]);
 });
+
+test("batching: requests and transactions stay within both a count and a byte budget", async () => {
+  const { takeBatch, chunkOps, opBytes } = await import("@/lib/sync/batch");
+  const note = (id: number, n: number) => ({ t: "note" as const, id, kind: "code" as const, content: "x".repeat(n), base: 0, at: T });
+  // 120 notes of ~45k chars (~5.4 MB) — more than Vercel's 4.5 MB body limit in one request.
+  const heavy = Array.from({ length: 120 }, (_, i) => note(i + 1, 45_000));
+  const first = takeBatch(heavy, 500, 1_500_000);
+  assert.ok(first.length > 0 && first.length < heavy.length);
+  assert.ok(JSON.stringify({ ops: first }).length <= 1_500_000, "encoded request within budget");
+  const chunks = chunkOps(heavy, 200, 1_500_000);
+  assert.deepEqual(chunks.flat(), heavy, "every op exactly once, in order");
+  for (const c of chunks) assert.ok(JSON.stringify(c).length <= 1_500_000);
+  // Count limit still applies to small ops.
+  const small = Array.from({ length: 450 }, (_, i) => ({ t: "bookmark" as const, id: i + 1, on: true, at: T }));
+  assert.deepEqual(chunkOps(small, 200, 4_000_000).map((c) => c.length), [200, 200, 50]);
+  // A single op over the byte budget still goes alone (never stuck, never split).
+  assert.equal(takeBatch([note(1, 100), note(2, 100)], 10, 50).length, 1);
+  // Multi-byte text is measured in bytes, not characters.
+  assert.ok(opBytes(note(1, 0)) + 3 * 1000 <= opBytes({ ...note(1, 0), content: "€".repeat(1000) }));
+  assert.deepEqual(takeBatch([], 10, 10), []);
+});

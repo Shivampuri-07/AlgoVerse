@@ -14,6 +14,7 @@ import { create } from "zustand";
 import { useAppStore } from "@/lib/store";
 import { coalesce, diffSnapshots, importOps, snapshotIsEmpty, type SyncSnapshot } from "@/lib/sync/diff";
 import { EMPTY_LEGACY, mergeLegacy } from "@/lib/sync/merge";
+import { takeBatch } from "@/lib/sync/batch";
 import {
   noteKey,
   opKey,
@@ -379,7 +380,8 @@ async function pushNow(uid: string) {
   for (;;) {
     const ops = readOutbox(uid);
     if (!ops.length) return;
-    const batch = ops.slice(0, SYNC_LIMITS.maxOpsPerRequest);
+    // Within Vercel's 4.5 MB request limit however long the notes are.
+    const batch = takeBatch(ops, SYNC_LIMITS.maxOpsPerRequest, SYNC_LIMITS.maxRequestBytes);
     const result = await request<PushResponse>("POST", "/api/sync", { ops: batch });
     // Remove exactly what was sent; anything edited again meanwhile stays queued.
     const sent = new Map(batch.map((o) => [opKey(o), JSON.stringify(o)]));
@@ -401,13 +403,35 @@ async function pushNow(uid: string) {
   }
 }
 
+/**
+ * Fetches every page of a pull (notes are paged to stay under the response size limit).
+ * `onPage` runs per page; the cursor to keep is the FIRST page's.
+ */
+async function pullPages(since: number, onPage: (page: PullResponse) => void): Promise<number> {
+  let after: string | null = null;
+  let cursor = since;
+  for (let page = 0; page < 1000; page++) {
+    const url: string = `/api/sync?since=${since}${after ? `&notesAfter=${encodeURIComponent(after)}` : ""}`;
+    const res: PullResponse = await request<PullResponse>("GET", url);
+    if (page === 0) cursor = res.cursor;
+    onPage(res);
+    if (!res.more || !res.notesAfter) return cursor;
+    after = res.notesAfter;
+  }
+  return cursor;
+}
+
 async function pullNow(uid: string) {
   const meta = readMeta();
-  const result = await request<PullResponse>("GET", `/api/sync?since=${meta.cursor}`);
-  applyChanges(uid, result);
-  writeMeta({ ...readMeta(), cursor: result.cursor });
+  let sawPreferences = false;
+  const cursor = await pullPages(meta.cursor, (page) => {
+    if (page.meta?.preferences) sawPreferences = true;
+    applyChanges(uid, page);
+  });
+  // Only now (every page applied) does the cursor move on: an interrupted pull just resumes.
+  writeMeta({ ...readMeta(), cursor });
   // First sync of an account with no saved preference: upload this device's theme once.
-  if (meta.cursor === 0 && !result.meta?.preferences && preferencesHandler) {
+  if (meta.cursor === 0 && !sawPreferences && preferencesHandler) {
     recordPreference(preferencesHandler.current());
   }
 }
@@ -595,8 +619,15 @@ export function backupLocalData(reason: string): string {
 export async function switchToCloudAndStart(uid: string): Promise<string> {
   const backupKey = backupLocalData(`switch to account ${uid.slice(0, 6)}…`);
   stopSync();
-  const cloud = await request<PullResponse>("GET", "/api/sync?since=0");
-  writeMeta(freshMeta({ ownerUserId: uid, cursor: cloud.cursor, prefs: readMeta().prefs }));
+  // Collect ALL pages first; the device is only replaced once the whole account has arrived.
+  const cloud: SyncChanges = { progress: [], bookmarks: [], notes: [], meta: null };
+  const cursor = await pullPages(0, (page) => {
+    cloud.progress.push(...page.progress);
+    cloud.bookmarks.push(...page.bookmarks);
+    cloud.notes.push(...page.notes);
+    if (page.meta) cloud.meta = page.meta;
+  });
+  writeMeta(freshMeta({ ownerUserId: uid, cursor, prefs: readMeta().prefs }));
   try {
     window.localStorage.removeItem(SYNC_OUTBOX_KEY); // the other account's unsent changes are in the backup
   } catch {

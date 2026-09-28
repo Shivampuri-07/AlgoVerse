@@ -1,12 +1,12 @@
 import { authError, jsonResponse, requireUser } from "@/lib/auth/server";
 import { getEntitlements } from "@/lib/entitlements";
 import { getAdminDb } from "@/lib/firebase/admin";
-import { parseOps, pullChanges, pushOps } from "@/lib/sync/server";
+import { NOTE_CURSOR_RE, parseOps, pullChanges, pushOps } from "@/lib/sync/server";
 
 /**
  * Cloud sync (Pro). The uid always comes from the verified session; the entitlement from the
  * server (lib/entitlements.ts) — never from the request.
- *   GET  ?since=<ms>  → changes since the cursor (since=0: everything)   PullResponse
+ *   GET  ?since=<ms>[&notesAfter=<page cursor>] → changes since the cursor, notes paged   PullResponse
  *   POST { ops }      → applies local changes with the conflict rules      PushResponse
  */
 export const runtime = "nodejs";
@@ -39,11 +39,13 @@ async function authorise(req: Request, mutation: boolean): Promise<Authorised> {
 export async function GET(req: Request): Promise<Response> {
   const a = await authorise(req, false);
   if (!a.ok) return a.response;
-  const sinceRaw = new URL(req.url).searchParams.get("since") ?? "0";
+  const params = new URL(req.url).searchParams;
+  const sinceRaw = params.get("since") ?? "0";
   const since = /^\d{1,15}$/.test(sinceRaw) ? Number(sinceRaw) : NaN;
-  if (!Number.isFinite(since)) return authError("bad_request");
+  const notesAfter = params.get("notesAfter");
+  if (!Number.isFinite(since) || (notesAfter !== null && !NOTE_CURSOR_RE.test(notesAfter))) return authError("bad_request");
   try {
-    return jsonResponse(await pullChanges(a.db, a.uid, since));
+    return jsonResponse(await pullChanges(a.db, a.uid, since, Date.now(), notesAfter));
   } catch (err) {
     console.error(`[sync] pull failed (${(err as { code?: unknown })?.code ?? "unknown"})`);
     return authError("unavailable");
