@@ -3,20 +3,25 @@
  * and the comparison shown to users. Shared by the server (enforcement, lib/entitlements.ts) and
  * the UI (display only; never trusted for access).
  *
- * STATUS: the feature list and price below are a PROPOSAL awaiting the owner's approval
- * (docs/SAAS_ARCHITECTURE.md §7 + decision record). Payments are Phase 4 and are not enabled.
+ * STATUS: feature list APPROVED by the owner on 2026-09-28 ("all DSA questions free; articles and
+ * videos Pro"). Price ₹30/month, monthly only. Payments are Phase 4 and are not enabled.
  */
 export type PlanId = "free" | "pro";
 
 export interface PlanFeatures {
   /** Cross-device sync of progress, bookmarks, notes, streak and theme (docs §5). */
   cloudSync: boolean;
+  /** Articles and Striver video explanations (links served by GET /api/resources/[id]). */
+  learningResources: boolean;
 }
 
 export const PLANS: Record<PlanId, { name: string; features: PlanFeatures }> = {
-  free: { name: "Free", features: { cloudSync: false } },
-  pro: { name: "Pro", features: { cloudSync: true } },
+  free: { name: "Free", features: { cloudSync: false, learningResources: false } },
+  pro: { name: "Pro", features: { cloudSync: true, learningResources: true } },
 };
+
+/** One-line summary used across pricing, the upgrade dialog and billing. */
+export const PLAN_SUMMARY = "All 455 DSA problems are free. Pro unlocks articles, videos, and cloud sync.";
 
 export type Feature = keyof PlanFeatures;
 
@@ -34,8 +39,8 @@ export interface EntitlementsView {
 export const PRICING = {
   currency: "INR",
   proMonthly: 30,
-  /** False until the owner approves the plan list and price below. */
-  approved: false,
+  /** The owner approved the plan list below (2026-09-28). */
+  approved: true,
   /** False until Phase 4 (Razorpay) is live — no checkout is offered before that. */
   paymentsEnabled: false,
 } as const;
@@ -59,20 +64,20 @@ export interface FeatureRow {
   phase?: number;
 }
 
-/** PROPOSED Free vs Pro comparison (awaiting approval). Honest: planned items are labelled as such. */
+/** APPROVED Free vs Pro comparison. Planned items are labelled as such until they're built. */
 export const FEATURE_MATRIX: FeatureRow[] = [
   {
-    id: "roadmap",
-    label: "All 455 DSA problems",
-    description: "The full step-by-step roadmap with topics, sections, search, filters and random problems.",
-    free: true,
-    pro: true,
+    id: "problems",
+    label: "All 455 DSA questions and problems",
+    description: "Every problem in the roadmap, with its practice links. No daily limit.",
+    free: "Unlimited access",
+    pro: "Unlimited access",
     availability: "available",
   },
   {
-    id: "videos",
-    label: "Striver video explanations",
-    description: "Video explanations where a verified one exists.",
+    id: "navigation",
+    label: "Topics, problem search and filters",
+    description: "Browse by topic and section, search, filter and pick a random problem.",
     free: true,
     pro: true,
     availability: "available",
@@ -80,16 +85,40 @@ export const FEATURE_MATRIX: FeatureRow[] = [
   {
     id: "local-progress",
     label: "Progress, bookmarks, notes and streaks",
-    description: "Saved on your device, working offline, with file export and import.",
+    description: "Track what you've solved, save problems and write notes.",
+    free: true,
+    pro: true,
+    availability: "available",
+  },
+  {
+    id: "local-data",
+    label: "Local data and progress export",
+    description: "Saved on your device, works offline, with file export and import.",
     free: true,
     pro: true,
     availability: "available",
   },
   {
     id: "account",
-    label: "AlgoVerse account",
+    label: "Email/password and Google account",
     description: "Sign in with email or Google.",
     free: true,
+    pro: true,
+    availability: "available",
+  },
+  {
+    id: "articles",
+    label: "Articles and written learning content",
+    description: "Links to verified explanation articles for each problem.",
+    free: false,
+    pro: true,
+    availability: "available",
+  },
+  {
+    id: "videos",
+    label: "Striver videos and video explanations",
+    description: "Links to Striver's video explanation for each problem, opening on YouTube.",
+    free: false,
     pro: true,
     availability: "available",
   },
@@ -105,17 +134,17 @@ export const FEATURE_MATRIX: FeatureRow[] = [
     id: "ai-helper",
     label: "AI DSA helper",
     description: "Hints, approaches, complexity and debugging help for each problem.",
-    free: "Limited daily questions",
-    pro: "Higher daily limit (fair use)",
+    free: "Limited daily questions when implemented",
+    pro: "Higher daily limit with fair-use limits when implemented",
     availability: "planned",
     phase: 5,
   },
   {
     id: "analytics",
-    label: "Advanced progress analytics",
+    label: "Advanced analytics",
     description: "Topic strengths and gaps, pace and time-to-finish estimates.",
     free: false,
-    pro: true,
+    pro: "Planned Pro feature",
     availability: "planned",
   },
   {
@@ -123,22 +152,22 @@ export const FEATURE_MATRIX: FeatureRow[] = [
     label: "Interview preparation mode",
     description: "Revision lists built from your mistakes and timed practice sets.",
     free: false,
-    pro: true,
+    pro: "Planned Pro feature",
     availability: "planned",
   },
   {
     id: "personal-roadmap",
-    label: "Personalised roadmap",
+    label: "Personalized roadmap",
     description: "A study plan adapted to your progress and goals.",
     free: false,
-    pro: true,
+    pro: "Planned Pro feature",
     availability: "planned",
   },
 ];
 
 /** Pro benefits for upgrade prompts: what you get now vs later (never overstated). */
 export function proBenefits(): { available: FeatureRow[]; planned: FeatureRow[] } {
-  const proOnly = FEATURE_MATRIX.filter((r) => r.pro && r.free !== true);
+  const proOnly = FEATURE_MATRIX.filter((r) => r.pro && r.free !== true && r.free !== r.pro);
   return {
     available: proOnly.filter((r) => r.availability === "available"),
     planned: proOnly.filter((r) => r.availability === "planned"),

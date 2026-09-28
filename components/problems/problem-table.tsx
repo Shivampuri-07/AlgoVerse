@@ -12,7 +12,7 @@ import { EmptyState } from "@/components/problems/empty-state";
 import { ArticleButton } from "@/components/problems/platform-links";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { hasStriverVideo } from "@/lib/videos";
+import { hasStriverVideo } from "@/lib/video-index";
 import type { Problem } from "@/lib/types";
 
 function Meta({ problem, showTopic }: { problem: Problem; showTopic: boolean }) {
@@ -164,7 +164,7 @@ export function ProblemTable({
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
                       <BookmarkButton problemId={problem.id} size="icon" />
-                      <ArticleButton article={problem.article} title={problem.title} size="icon" compact />
+                      <ArticleButton problemId={problem.id} article={problem.article} title={problem.title} size="icon" compact />
                       <Button variant="ghost" size="icon" asChild aria-label={`Open notes for ${problem.title}`}>
                         <Link href={`/problems/${problem.id}`}>
                           <FileText className="h-4 w-4" />
@@ -236,7 +236,7 @@ export function ProblemTable({
                     No link available
                   </Button>
                 )}
-                <ArticleButton article={problem.article} title={problem.title} size="icon" compact />
+                <ArticleButton problemId={problem.id} article={problem.article} title={problem.title} size="icon" compact />
                 <Button variant="outline" size="sm" asChild>
                   <Link href={`/problems/${problem.id}`}>Details</Link>
                 </Button>

@@ -130,3 +130,26 @@ test("only ids are stored — no URLs, API keys or tracking parameters in the da
   assert.ok(!/https?:\/\//.test(src.split("export const STRIVER_VIDEOS:")[1]), "no URLs in the map");
   assert.ok(!/AIza|GEMINI|api[_-]?key|si=|utm_/i.test(src));
 });
+
+test("browser-safe video index matches the server data and contains no video ids", async () => {
+  const { STRIVER_VIDEO_TITLES } = await import("@/data/videoIndex");
+  const index = readFileSync(new URL("../../data/videoIndex.ts", import.meta.url), "utf8");
+  assert.deepEqual(Object.keys(STRIVER_VIDEO_TITLES).map(Number).sort((a, b) => a - b), Object.keys(STRIVER_VIDEOS).map(Number).sort((a, b) => a - b));
+  for (const [id, v] of Object.entries(STRIVER_VIDEOS)) {
+    assert.equal(STRIVER_VIDEO_TITLES[Number(id)], v.title, `title of #${id}`);
+    assert.ok(!index.includes(v.videoId), `index leaks the id of #${id}`);
+  }
+});
+
+test("Pro resources lookup: video watch link and article for a problem; none for unknown ids", async () => {
+  const { getLearningResources } = await import("@/lib/resources");
+  const { ARTICLES } = await import("@/data/articles");
+  const r = getLearningResources(6)!;
+  assert.match(r.video!.watchUrl, /^https:\/\/www\.youtube\.com\/watch\?v=[A-Za-z0-9_-]{11}/);
+  assert.equal(r.article!.url, ARTICLES[6].url);
+  assert.equal(getLearningResources(999_999), null);
+  // Every dataset article flag has a server-side URL and vice versa.
+  const flagged = a2zProblems.filter((p) => p.article).map((p) => p.id).sort((a, b) => a - b);
+  assert.deepEqual(Object.keys(ARTICLES).map(Number).sort((a, b) => a - b), flagged);
+  assert.ok(a2zProblems.every((p) => !(p.article && "url" in p.article)), "no article URL left in the public dataset");
+});

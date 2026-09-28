@@ -29,7 +29,7 @@ import { GoogleMark } from "@/components/account/google-sign-in";
 import { SyncCard } from "@/components/sync/sync-status";
 import { useSyncSetup } from "@/components/sync/sync-provider";
 import { UpgradeButton } from "@/components/billing/upgrade-dialog";
-import { PLANS } from "@/lib/plans";
+import { PLANS, PLAN_SUMMARY } from "@/lib/plans";
 
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
@@ -270,6 +270,7 @@ export function AccountView({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
+          <p>{PLAN_SUMMARY}</p>
           <p>
             Your progress, bookmarks and notes are saved on this device, exactly as before. Signing in or out
             doesn&apos;t change them.

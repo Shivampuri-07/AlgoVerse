@@ -13,6 +13,7 @@ Nothing in this document is legal, tax or financial advice.
 | AI helper | **Requires login** | Per-user quotas (Phase 5). |
 | Gemini tier | **Free tier** (no paid key) | The privacy policy must disclose that Google may use free-tier prompts to improve its products. Free-tier rate limits cap total AI capacity. |
 | Paid infrastructure | **Declined for now** | Stays on Vercel Hobby and the Firebase Spark plan. **Vercel Hobby forbids commercial use, so this must be resolved before live payments** (section 10). |
+| Free vs Pro (2026-09-28) | **All 455 DSA problems free; articles and Striver videos Pro** (plus cloud sync). Videos are link-outs to YouTube, with no embedded player (YouTube API policy III.F.3). | Article URLs and video ids are server-only (`data/articles.ts`, `data/striverVideos.ts`), served by `GET /api/resources/[id]` after a session and entitlement check (`learningResources`). The bundle scan verifies they never reach the browser. |
 | Age | **Any age** | DPDP treats under-18s as children needing verifiable parental consent (obligations from 14 May 2027). Lawyer review needed before launch. |
 
 ### Implementation status (2026-09-28)
@@ -21,7 +22,7 @@ Nothing in this document is legal, tax or financial advice.
 |---|---|
 | 1. Accounts | Done: email/password, verification (fixed-expiry escalating pause), Google Sign-In + linking, server sessions, account page. Tested on the emulators; Google linking confirmed by the owner on a Preview deployment. |
 | 2. Cloud sync (Pro) | Done: outbox + change journal, server merge with §5 conflict rules (Firestore transactions), first-login import dialog, other-account switch with local backup, status indicator + account card, sync-aware reset/import, **theme preference sync (last write wins)**, **notes over 50,000 characters kept on the device and listed, never blocking other sync; two versions too long to merge are never truncated (each device keeps its own until the user picks one)**. Two-device, offline, theme and long-note browser tests (emulators). Not yet exercised on the real project. |
-| 3. Plans & entitlements | Built: `lib/plans.ts` (single source for features, price ₹30/month, **proposed** Free vs Pro matrix with available/planned labels), `lib/entitlements.ts` + `GET /api/me/entitlements`, public `/pricing` with comparison table, reusable upgrade dialog (no checkout until Phase 4), protected `/account/billing` (plan from the server, empty payment history, labelled sample rows on Preview only), account plan card, sidebar and menu links. **Awaiting owner approval of the feature list and price** (`PRICING.approved`). |
+| 3. Plans & entitlements | Done: `lib/plans.ts` (APPROVED matrix, ₹30/month monthly, `learningResources` + `cloudSync` Pro features), `lib/entitlements.ts`, `/api/me/entitlements`, `/api/resources/[id]` (Pro articles/videos), `/pricing`, upgrade dialog, `/account/billing` (plan from the server, no real payments), account plan card, nav links. Payments remain Phase 4. |
 
 ### Firestore layout (replaces section 4 for implementation)
 

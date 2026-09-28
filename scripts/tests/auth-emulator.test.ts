@@ -359,3 +359,31 @@ test("sync: theme preference round-trips (last write wins); a too-long merge is 
   // A note over the limit is rejected at validation (the client never sends one).
   assert.equal((await push(a.cookie, [{ t: "note", id: 21, kind: "note", content: "z".repeat(50_001), base: 0, at: T0 }])).status, 400);
 });
+
+// ---------------------------------------------------------------- Pro learning resources API
+
+const resourcesRoute = await import("@/app/api/resources/[id]/route");
+const getResources = (id: string, cookie?: string) =>
+  resourcesRoute.GET(new Request(`${ORIGIN}/api/resources/${id}`, { headers: cookie ? { cookie } : {} }), { params: Promise.resolve({ id }) });
+
+test("resources: signed-out 401, Free 403 (no links in the body), Pro 200, expired Pro 403, bad/unknown ids", async () => {
+  assert.equal((await getResources("6")).status, 401);
+  const a = await newSession(`res-${Date.now()}@example.com`);
+  const free = await getResources("6", a.cookie);
+  assert.equal(free.status, 403);
+  const freeText = await free.text();
+  assert.equal(JSON.parse(freeText).error.code, "not_entitled");
+  assert.ok(!/youtube|takeuforward/i.test(freeText), "no links for Free users");
+
+  await grantPro(a.uid);
+  const pro = await getResources("6", a.cookie);
+  assert.equal(pro.status, 200);
+  const body = await pro.json();
+  assert.match(body.video.watchUrl, /^https:\/\/www\.youtube\.com\/watch\?v=/);
+  assert.match(body.article.url, /^https:\/\/takeuforward\.org\//);
+  assert.equal((await getResources("abc", a.cookie)).status, 400);
+  assert.equal((await getResources("999999", a.cookie)).status, 404);
+
+  await grantPro(a.uid, Date.now() - 1000);
+  assert.equal((await getResources("6", a.cookie)).status, 403, "expired Pro loses access");
+});

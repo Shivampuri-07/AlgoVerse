@@ -20,7 +20,9 @@ def obj(p):
     parts.append(f"platforms: {{ {plat} }}" if plat else 'platforms: {}')
     if p.get('otherLabel'): parts.append(f"otherLabel: {J(p['otherLabel'])}")
     if p.get('article'):
-        parts.append('article: { url: %s, source: %s }' % (J(p['article']['url']), J(p['article']['source'])))
+        # Articles are Pro: only the source goes into the public dataset; the URL goes to the
+        # server-only data/articles.ts (written below).
+        parts.append('article: { source: %s }' % J(p['article']['source']))
     if p.get('premium'): parts.append('premium: true')
     if p.get('related'):
         rs = ', '.join('{ platform: %s, title: %s, url: %s, note: %s }' % (
@@ -65,6 +67,21 @@ for p in a:
 lines.append('];')
 lines.append('')
 open('/home/claude/dsa-roadmap/data/a2zProblems.ts', 'w').write('\n'.join(lines))
+
+# data/articles.ts — SERVER-ONLY Pro article URLs (see the header in that file).
+art = ['/**',
+       ' * PRO-ONLY learning resources: explanation articles (TakeUForward), keyed by problem id.',
+       ' *',
+       ' * SERVER-ONLY. Served only by GET /api/resources/[id] to users entitled to "learningResources".',
+       ' * GENERATED alongside data/a2zProblems.ts by scripts/a2z-build (emit.py). Keep ids in sync.',
+       ' */',
+       'import type { ArticleLink } from "@/lib/types";',
+       '',
+       'export const ARTICLES: Readonly<Record<number, ArticleLink>> = {']
+for p in sorted((x for x in a if x.get('article')), key=lambda x: x['id']):
+    art.append('  %d: { url: %s, source: %s },' % (p['id'], J(p['article']['url']), J(p['article']['source'])))
+art += ['};', '']
+open('/home/claude/dsa-roadmap/data/articles.ts', 'w').write('\n'.join(art))
 
 # ---------------------------------------------------------------- legacy map
 lm = json.load(open('/home/claude/a2z/legacy_map.json'))

@@ -40,8 +40,9 @@ links in their HTML, so they weren't used as a source.
 - Both sheets agree → used. Only one lists a video, or they disagree → the YouTube title was
   checked by hand; the video whose title names this problem is used, otherwise none.
 - Lecture videos that cover several problems keep the sheet's start time.
-- AlgoVerse isn't affiliated with Take U Forward; videos are shown with YouTube's official
-  embed (privacy-enhanced, loaded only on click, no autoplay) and link back to YouTube.
+- AlgoVerse isn't affiliated with Take U Forward. Videos are a **Pro** feature and open on
+  YouTube (no embedded player). The ids stay server-side and are served by
+  `GET /api/resources/[id]` to Pro users only.
 
 ## Updating
 

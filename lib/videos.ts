@@ -2,7 +2,9 @@ import { STRIVER_VIDEOS, type StriverVideo } from "@/data/striverVideos";
 import { YOUTUBE_ID_RE } from "@/lib/video-validation";
 
 /**
- * Helpers for the "Striver's Video Explanation" section.
+ * SERVER-ONLY (videos are Pro): helpers for Striver's video explanations. Used by
+ * GET /api/resources/[id] and the tests — never by client components (they use lib/video-index.ts,
+ * which has no video ids). `npm run check:secrets` fails if a video id reaches the browser.
  *
  * The mapping itself lives in data/striverVideos.ts (keyed by problem id, separate from the
  * problem data). Only YouTube video ids are stored; every URL is built here at runtime, so a

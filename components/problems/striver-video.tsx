@@ -1,177 +1,164 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, BookOpen, ExternalLink, Loader2, PlayCircle, Youtube } from "lucide-react";
+import { BookOpen, ExternalLink, Loader2, Lock, Sparkles, Youtube } from "lucide-react";
+import { useSyncSetup } from "@/components/sync/sync-provider";
+import { UpgradeDialog } from "@/components/billing/upgrade-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { formatTimestamp, getStriverVideo, youtubeEmbedUrl, youtubeWatchUrl } from "@/lib/videos";
-import { cn } from "@/lib/utils";
+import { striverVideoTitle } from "@/lib/video-index";
 import type { Problem } from "@/lib/types";
 
-/** How long the embedded player may take before we offer the YouTube link instead. */
-const LOAD_TIMEOUT_MS = 15_000;
+/** Shape returned by GET /api/resources/[id] (lib/resources.ts). */
+interface LearningResources {
+  video: { title: string; watchUrl: string; startsAt: string | null } | null;
+  article: { url: string; source: string } | null;
+}
 
-type PlayerState = "idle" | "loading" | "ready" | "failed" | "offline";
+type LoadState = { kind: "idle" } | { kind: "loading" } | { kind: "ready"; data: LearningResources } | { kind: "locked" } | { kind: "error" };
 
 /**
- * "Striver's Video Explanation" on a problem page.
- *
- * Nothing is requested from YouTube until the viewer clicks "Load video": no iframe, no
- * thumbnail, no script. Then the official embed (privacy-enhanced youtube-nocookie.com) is
- * inserted without autoplay. Problems without a verified mapping get a plain message — never
- * a guessed or unrelated video.
+ * "Learning resources" on a problem page: Striver's video explanation and the explanation article.
+ * Both are Pro. The links never ship to the browser in the page data: Pro users get them from
+ * GET /api/resources/[id], which checks the session and the server-side entitlement. Everyone
+ * can see that a resource exists (and the video's title); Free users get an upgrade prompt.
+ * No embedded YouTube player: videos open on YouTube (owner decision; YouTube policy III.F.3).
+ * The problem itself, its practice links, progress and notes stay free.
  */
 export function StriverVideo({ problem }: { problem: Pick<Problem, "id" | "title" | "article"> }) {
-  const video = getStriverVideo(problem.id);
-  const headingId = `striver-video-${problem.id}`;
+  const { entitlements } = useSyncSetup();
+  const isPro = entitlements?.features.learningResources === true;
+  const videoTitle = striverVideoTitle(problem.id);
+  const articleSource = problem.article?.source ?? null;
+  const [state, setState] = React.useState<LoadState>({ kind: "idle" });
+  const [upgradeOpen, setUpgradeOpen] = React.useState(false);
+  const [upgradeReason, setUpgradeReason] = React.useState("");
+  const headingId = `learning-resources-${problem.id}`;
+
+  React.useEffect(() => {
+    if (!isPro || (!videoTitle && !articleSource)) {
+      setState({ kind: "idle" });
+      return;
+    }
+    let cancelled = false;
+    setState({ kind: "loading" });
+    fetch(`/api/resources/${problem.id}`, { cache: "no-store", credentials: "same-origin" })
+      .then(async (res) => {
+        if (cancelled) return;
+        if (res.status === 401 || res.status === 403) return setState({ kind: "locked" });
+        if (!res.ok) return setState({ kind: "error" });
+        setState({ kind: "ready", data: (await res.json()) as LearningResources });
+      })
+      .catch(() => !cancelled && setState({ kind: "error" }));
+    return () => {
+      cancelled = true;
+    };
+  }, [isPro, problem.id, videoTitle, articleSource]);
+
+  const unlocked = isPro && state.kind !== "locked";
+  const openUpgrade = (reason: string) => {
+    setUpgradeReason(reason);
+    setUpgradeOpen(true);
+  };
 
   return (
-    <Card aria-labelledby={headingId}>
+    <Card aria-labelledby={headingId} id="learning-resources">
       <CardHeader className="pb-3">
         <CardTitle id={headingId} className="flex items-center gap-2 text-base">
-          <Youtube className="h-4 w-4 text-red-600 dark:text-red-500" aria-hidden="true" />
-          Striver&apos;s Video Explanation
+          <Sparkles className="h-4 w-4 text-primary" aria-hidden="true" />
+          Learning resources
+          <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">Pro</span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {video ? (
-          <VideoPlayer video={video} problemTitle={problem.title} />
+        {!videoTitle && !articleSource ? (
+          <p className="text-sm text-muted-foreground">No verified video or article for this problem yet.</p>
         ) : (
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Striver&apos;s video explanation is not available for this problem yet.
-            </p>
-            {problem.article && (
-              <Button asChild variant="outline" size="sm">
-                <a
-                  href={problem.article.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={`Read the ${problem.article.source} article for ${problem.title} (opens in new tab)`}
-                >
-                  <BookOpen className="h-3.5 w-3.5" />
-                  Read the {problem.article.source} article
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-              </Button>
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function VideoPlayer({
-  video,
-  problemTitle,
-}: {
-  video: NonNullable<ReturnType<typeof getStriverVideo>>;
-  problemTitle: string;
-}) {
-  const [state, setState] = React.useState<PlayerState>("idle");
-  const timerRef = React.useRef<ReturnType<typeof setTimeout>>();
-  const watchUrl = youtubeWatchUrl(video);
-  const embeddable = video.embeddable !== false;
-  const iframeTitle = `Striver's video explanation for ${problemTitle}: ${video.title} (YouTube)`;
-
-  React.useEffect(() => () => clearTimeout(timerRef.current), []);
-
-  const load = () => {
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      setState("offline");
-      return;
-    }
-    setState("loading");
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setState((s) => (s === "loading" ? "failed" : s)), LOAD_TIMEOUT_MS);
-  };
-
-  const showFrame = embeddable && (state === "loading" || state === "ready");
-
-  return (
-    <div className="space-y-3">
-      <div
-        className={cn(
-          "relative w-full overflow-hidden rounded-lg border border-border bg-muted",
-          // The player is always 16:9. The placeholder may grow on narrow phones so its text never clips.
-          showFrame ? "aspect-video" : "flex min-h-40 items-center justify-center p-4 sm:aspect-video"
-        )}
-      >
-        {showFrame ? (
           <>
-            <iframe
-              src={youtubeEmbedUrl(video)}
-              title={iframeTitle}
-              className="absolute inset-0 h-full w-full"
-              allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              referrerPolicy="strict-origin-when-cross-origin"
-              allowFullScreen
-              loading="lazy"
-              onLoad={() => {
-                clearTimeout(timerRef.current);
-                setState("ready");
-              }}
-            />
-            {state === "loading" && (
-              <div
-                role="status"
-                className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted text-sm text-muted-foreground"
-              >
-                <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />
-                Loading the YouTube player…
+            {videoTitle && (
+              <div className="flex flex-col gap-2 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 space-y-0.5">
+                  <p className="flex items-center gap-1.5 text-sm font-medium">
+                    <Youtube className="h-4 w-4 shrink-0 text-red-600 dark:text-red-500" aria-hidden="true" />
+                    Striver&apos;s video explanation
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground" title={videoTitle} data-testid="video-title">
+                    {videoTitle}
+                    {state.kind === "ready" && state.data.video?.startsAt ? ` · from ${state.data.video.startsAt}` : ""}
+                  </p>
+                </div>
+                {unlocked && state.kind === "ready" && state.data.video ? (
+                  <Button asChild size="sm" className="shrink-0">
+                    <a
+                      href={state.data.video.watchUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`Watch Striver's explanation of ${problem.title} on YouTube (opens in new tab)`}
+                      data-testid="watch-video"
+                    >
+                      Watch on YouTube
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </Button>
+                ) : unlocked && state.kind === "loading" ? (
+                  <Button size="sm" disabled className="shrink-0">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0"
+                    data-testid="locked-video"
+                    onClick={() => openUpgrade("Striver's video explanations are part of AlgoVerse Pro.")}
+                  >
+                    <Lock className="h-3.5 w-3.5" /> Watch — Pro
+                  </Button>
+                )}
               </div>
+            )}
+            {articleSource && (
+              <div className="flex flex-col gap-2 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="flex items-center gap-1.5 text-sm font-medium">
+                  <BookOpen className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  Explanation article <span className="font-normal text-muted-foreground">({articleSource})</span>
+                </p>
+                {unlocked && state.kind === "ready" && state.data.article ? (
+                  <Button asChild size="sm" variant="outline" className="shrink-0">
+                    <a
+                      href={state.data.article.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`Read the ${state.data.article.source} article for ${problem.title} (opens in new tab)`}
+                      data-testid="read-article"
+                    >
+                      Read article
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </Button>
+                ) : unlocked && state.kind === "loading" ? null : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0"
+                    data-testid="locked-article"
+                    onClick={() => openUpgrade("Articles are part of AlgoVerse Pro.")}
+                  >
+                    <Lock className="h-3.5 w-3.5" /> Read — Pro
+                  </Button>
+                )}
+              </div>
+            )}
+            {state.kind === "error" && (
+              <p className="text-sm text-muted-foreground">Couldn&apos;t load the links right now. Check your connection and reload.</p>
+            )}
+            {!unlocked && (
+              <p className="text-xs text-muted-foreground">All 455 problems stay free — Pro adds articles, videos and cloud sync.</p>
             )}
           </>
-        ) : (
-          <div className="flex flex-col items-center justify-center gap-3 text-center">
-            {state === "failed" || state === "offline" ? (
-              <div role="alert" className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
-                <AlertTriangle className="h-6 w-6 text-warning" aria-hidden="true" />
-                <p>
-                  {state === "offline"
-                    ? "You're offline — the video needs an internet connection."
-                    : "The video player didn't load. You can watch it on YouTube instead."}
-                </p>
-                <Button type="button" variant="outline" size="sm" onClick={load}>
-                  Try again
-                </Button>
-              </div>
-            ) : embeddable ? (
-              <>
-                <p className="line-clamp-2 max-w-md text-sm font-medium">{video.title}</p>
-                <Button type="button" onClick={load} aria-label={`Load the YouTube player for "${video.title}"`}>
-                  <PlayCircle className="h-4 w-4" aria-hidden="true" />
-                  Load video
-                </Button>
-                <p className="max-w-sm text-xs text-muted-foreground">
-                  Nothing is loaded from YouTube until you click. The video won&apos;t start by itself.
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="line-clamp-2 max-w-md text-sm font-medium">{video.title}</p>
-                <p className="max-w-sm text-xs text-muted-foreground">
-                  This video can&apos;t be embedded here — watch it on YouTube.
-                </p>
-              </>
-            )}
-          </div>
         )}
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">
-          {video.start ? <>Starts at {formatTimestamp(video.start)} · </> : null}
-          Video by take U forward (Striver) on YouTube. AlgoVerse isn&apos;t affiliated with Take U Forward.
-        </p>
-        <Button asChild variant="outline" size="sm">
-          <a href={watchUrl} target="_blank" rel="noopener noreferrer" aria-label={`Open "${video.title}" on YouTube (opens in new tab)`}>
-            Open on YouTube
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
-        </Button>
-      </div>
-    </div>
+      </CardContent>
+      <UpgradeDialog open={upgradeOpen} onOpenChange={setUpgradeOpen} reason={upgradeReason} />
+    </Card>
   );
 }

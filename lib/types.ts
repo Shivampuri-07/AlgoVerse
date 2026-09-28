@@ -9,9 +9,15 @@ export interface ProblemPlatforms {
   other?: string;
 }
 
-/** An explanation to read (not a place to submit code). */
-export interface ProblemArticle {
+/** An explanation article (Pro-only). The URL lives server-side in data/articles.ts. */
+export interface ArticleLink {
   url: string;
+  /** e.g. "TakeUForward" */
+  source: string;
+}
+
+/** What the public dataset records about a problem's article: only that one exists, and where from. */
+export interface ProblemArticle {
   /** e.g. "TakeUForward" */
   source: string;
 }
@@ -43,7 +49,7 @@ export interface Problem {
   platforms: ProblemPlatforms;
   /** Display name for platforms.other, e.g. "TakeUForward", "InterviewBit". */
   otherLabel?: string;
-  /** Verified educational article for this exact problem; absent when none is verified. */
+  /** A verified article exists for this exact problem (Pro); the URL is server-only (data/articles.ts). */
   article?: ProblemArticle;
   /** LeetCode Premium problem. */
   premium?: boolean;

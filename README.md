@@ -133,7 +133,7 @@ lib/
   store.ts                  Zustand store + localStorage persistence + versioned migration
   migrate-progress.ts       Re-keys old progress to A2Z ids; keeps unmatched items as "legacy"
   dataset-validation.ts     Checks used by `validate:data` and Settings → Dataset health
-  videos.ts                 Video lookup + YouTube watch/embed URLs built at runtime
+  videos.ts                 Video lookup + YouTube watch URLs (server-only; videos are Pro)
   video-validation.ts       Checks for data/striverVideos.ts (used by `validate:data` and tests)
   ai/shared.ts              AI types, quick-action prompts, limits (browser-safe)
   ai/server.ts              System prompt, request validation, Gemini model + error mapping (server only)
@@ -213,11 +213,17 @@ local-only. Signing in never changes the progress stored on the device. Setup:
 [docs/ACCOUNTS_SETUP.md](docs/ACCOUNTS_SETUP.md). Architecture and roadmap:
 [docs/SAAS_ARCHITECTURE.md](docs/SAAS_ARCHITECTURE.md).
 
-## Striver's video explanations
+## Striver's video explanations and articles (Pro)
 
-Problem pages have a **Striver's Video Explanation** section with the explanation video from
-Striver's channel [take U forward](https://www.youtube.com/@takeUforward) (AlgoVerse isn't
-affiliated with Take U Forward).
+**All 455 problems are free. Articles and videos are part of AlgoVerse Pro.** Problem pages
+have a **Learning resources** section. Everyone can see whether a video or article exists (and
+the video's title). Pro users get **Watch on YouTube** and **Read article** links from
+`GET /api/resources/[id]`, which checks the session and the server-side entitlement. The links
+are never in the page data or the browser bundle (`npm run check:secrets` verifies this). There
+is no embedded player: videos open on YouTube (owner decision; YouTube API policy III.F.3
+forbids charging to watch in an embedded player). The explanation videos are from Striver's
+channel [take U forward](https://www.youtube.com/@takeUforward). AlgoVerse isn't affiliated
+with Take U Forward.
 
 - **Only verified videos.** A problem gets a video only if the takeuforward.org A2Z sheet and/or
   the classic A2Z sheet list that video for this exact item, YouTube confirms it exists, is
@@ -225,10 +231,10 @@ affiliated with Take U Forward).
   names the problem. 376 of 455 problems have one; the other 79 show *"Striver's video
   explanation is not available for this problem yet."* (plus the TakeUForward article when there
   is one). Nothing is guessed. Full list and reasons: [docs/STRIVER_VIDEOS.md](docs/STRIVER_VIDEOS.md).
-- **Privacy / performance.** Nothing is loaded from YouTube until you click **Load video**; then
-  the official privacy-enhanced embed (`youtube-nocookie.com`) is inserted, **without autoplay**.
-  No YouTube API key, no extra tracking. **Open on YouTube** is always there, and a fallback
-  message appears if the player doesn't load or you're offline.
+- **Where the data lives.** Video ids: `data/striverVideos.ts` (server-only). The browser only
+  gets `data/videoIndex.ts` (which problems have a video, and its title). Article URLs:
+  `data/articles.ts` (server-only). The public dataset only records `article: { source }`.
+- **Privacy.** Nothing is loaded from YouTube inside AlgoVerse.
 - Lecture videos that cover several problems open at the right timestamp.
 - Problems with a video show a small **Video** badge in the problem lists.
 

@@ -6,7 +6,7 @@ import { UpgradeButton } from "@/components/billing/upgrade-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { PLANS, PRICING, formatPrice, type EntitlementsView } from "@/lib/plans";
+import { PLANS, PLAN_SUMMARY, PRICING, formatPrice, type EntitlementsView } from "@/lib/plans";
 
 /** Clearly-labelled SAMPLE rows (Preview/local only) showing how payment history will look. */
 const SAMPLE_PAYMENTS = [
@@ -57,9 +57,16 @@ export function BillingView({ entitlements, showSample }: { entitlements: Entitl
             <dd className="text-foreground" data-testid="plan-until">
               {isPro ? (entitlements?.expiresAt ? formatDate(entitlements.expiresAt) : "No end date") : "—"}
             </dd>
+            <dt>DSA problems</dt>
+            <dd className="text-foreground">All 455, free</dd>
+            <dt>Articles &amp; videos</dt>
+            <dd className="text-foreground" data-testid="plan-resources">
+              {entitlements?.features.learningResources ? "Included" : "Not included"}
+            </dd>
             <dt>Cloud sync</dt>
             <dd className="text-foreground">{entitlements?.features.cloudSync ? "On" : "Not included"}</dd>
           </dl>
+          <p className="text-xs text-muted-foreground">{PLAN_SUMMARY}</p>
           <div className="flex flex-wrap gap-2 pt-1">
             {!isPro && <UpgradeButton size="sm" />}
             <Button asChild variant="outline" size="sm">

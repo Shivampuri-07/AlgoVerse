@@ -962,14 +962,23 @@ test("pricing: public page shows Free and Pro (₹30/month), marks planned featu
   await page.goto("/pricing");
   await page.getByRole("heading", { name: "Plans", exact: true }).waitFor();
   assert.equal((await page.getByTestId("pro-price").innerText()).trim(), "₹30");
-  assert.match(await page.getByTestId("pricing-status").innerText(), /proposal.*Payments aren't available yet/s);
+  assert.equal((await page.getByTestId("plan-summary").innerText()).trim(), "All 455 DSA problems are free. Pro unlocks articles, videos, and cloud sync.");
+  const status = await page.getByTestId("pricing-status").innerText();
+  assert.match(status, /Payments aren't available yet/);
+  assert.doesNotMatch(status, /proposal/i, "proposal banner removed");
   const table = await page.getByTestId("plan-comparison").innerText();
-  assert.match(table, /All 455 DSA problems/);
+  assert.match(table, /All 455 DSA questions and problems[\s\S]*Unlimited access\s*Unlimited access/);
+  assert.match(table, /Articles and written learning content/);
+  assert.match(table, /Striver videos and video explanations/);
   assert.match(table, /Cloud sync across devices/);
-  assert.match(table, /Advanced progress analytics\s*Planned/);
+  for (const planned of ["AI DSA helper", "Advanced analytics", "Interview preparation mode", "Personalized roadmap"]) {
+    assert.match(table, new RegExp(`${planned}\\s*Planned`), `${planned} marked planned`);
+  }
   // Signed out: the dialog leads to a free account, with no payment button.
   await page.getByRole("button", { name: "Upgrade to Pro" }).click();
   await page.getByRole("dialog").waitFor();
+  assert.match(await page.getByTestId("upgrade-summary").innerText(), /All 455 DSA problems are free/);
+  assert.match(await page.getByRole("dialog").innerText(), /Articles and written learning content[\s\S]*Striver videos and video explanations[\s\S]*Cloud sync across devices/);
   assert.ok(await page.getByTestId("payments-unavailable").isVisible());
   assert.ok(await page.getByRole("dialog").getByRole("link", { name: "Create a free account" }).isVisible());
   assert.equal(await page.getByRole("button", { name: /Continue to payment/ }).count(), 0);
@@ -989,6 +998,7 @@ test("billing: requires sign-in; a Free account sees Free, no payments and an ho
   assert.match(await page.getByTestId("account-plan").innerText(), /Free plan/);
   await page.goto("/account/billing");
   assert.match(await page.getByTestId("current-plan").innerText(), /Free/);
+  assert.equal((await page.getByTestId("plan-resources").innerText()).trim(), "Not included");
   assert.equal((await page.getByTestId("payment-history-empty").innerText()).trim(), "No payments.");
   assert.match(await page.getByTestId("sample-payments").innerText(), /Sample only .* not real payments/i);
   await page.getByRole("button", { name: "Upgrade to Pro" }).click();
@@ -1010,6 +1020,7 @@ test("billing: a Pro account (server entitlement) sees Pro, its end date and 'Yo
   assert.equal(res.status, 200);
   await page.goto("/account/billing");
   assert.match(await page.getByTestId("current-plan").innerText(), /Pro\s*Active/);
+  assert.equal((await page.getByTestId("plan-resources").innerText()).trim(), "Included");
   assert.match(await page.getByTestId("plan-until").innerText(), new RegExp(String(until.getFullYear())));
   await page.goto("/pricing");
   await page.getByText("Your plan").waitFor();
@@ -1018,5 +1029,96 @@ test("billing: a Pro account (server entitlement) sees Pro, its end date and 'Yo
   await page.evaluate((u) => localStorage.setItem(`algoverse-entitlements:${u}`, JSON.stringify({ plan: "free" })), uid);
   await page.goto("/account/billing");
   assert.match(await page.getByTestId("current-plan").innerText(), /Pro/);
+  await context.close();
+});
+
+// ------------------------------------------------------------------ Pro learning resources (articles + videos)
+
+async function proLinksIn(html) {
+  const { readFileSync } = await import("node:fs");
+  const articleUrls = [...readFileSync("data/articles.ts", "utf8").matchAll(/url: "([^"]+)"/g)].map((m) => m[1]);
+  const videoIds = [...readFileSync("data/striverVideos.ts", "utf8").matchAll(/videoId: "([A-Za-z0-9_-]{11})"/g)].map((m) => m[1]);
+  return [...articleUrls, ...videoIds].filter((x) => html.includes(x));
+}
+
+test("all 455 problems are free: every problem page opens for a signed-out visitor, with no Pro links in the page", async () => {
+  const { a2zProblems } = await import("../../data/a2zProblems.ts").catch(() => ({ a2zProblems: null }));
+  const ids = a2zProblems ? a2zProblems.map((p) => p.id) : Array.from({ length: 455 }, (_, i) => i + 1);
+  assert.equal(ids.length, 455);
+  let ok = 0;
+  const leaks = [];
+  for (let i = 0; i < ids.length; i += 25) {
+    await Promise.all(
+      ids.slice(i, i + 25).map(async (id) => {
+        const res = await fetch(`${CONFIGURED}/problems/${id}`);
+        const html = await res.text();
+        if (res.status === 200 && !/Pro-only problem|Upgrade to solve/i.test(html)) ok++;
+        const found = await proLinksIn(html);
+        if (found.length) leaks.push(`#${id}`);
+      })
+    );
+  }
+  assert.equal(ok, 455, "every problem page renders for free");
+  assert.deepEqual(leaks, [], "no article URL or video id in any problem page");
+});
+
+test("Free user: video and article are locked (upgrade dialog, no player, no links); free features still work", async () => {
+  const { context, page } = await newPage(CONFIGURED);
+  await signUpInUi(page, `res-free-${Date.now()}@example.com`);
+  await page.goto("/problems/6");
+  await page.getByTestId("locked-video").waitFor();
+  assert.ok((await page.getByTestId("video-title").innerText()).length > 0, "title may be shown");
+  assert.equal(await page.locator("iframe").count(), 0, "no embedded player");
+  assert.equal(await page.locator('a[href*="youtube.com"], a[href*="youtu.be"], a[href*="takeuforward.org/data-structure"]').count(), 0);
+  assert.deepEqual(await proLinksIn(await page.content()), [], "no Pro links anywhere in the DOM");
+  await page.getByTestId("locked-video").click();
+  await page.getByRole("dialog").waitFor();
+  assert.match(await page.getByRole("dialog").innerText(), /Striver's video explanations are part of AlgoVerse Pro/);
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog").waitFor({ state: "detached" });
+  await page.getByTestId("locked-article").click();
+  assert.match(await page.getByRole("dialog").innerText(), /Articles are part of AlgoVerse Pro/);
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog").waitFor({ state: "detached" });
+  // A direct API call is refused too.
+  assert.equal(await page.evaluate(async () => (await fetch("/api/resources/6")).status), 403);
+  // Free features: completion, notes, bookmark and export all still work.
+  await page.getByRole("button", { name: "Mark Completed" }).click();
+  await page.locator("#notes").fill("free user's note");
+  await page.getByRole("button", { name: /bookmark/i }).first().click();
+  await page.waitForTimeout(800);
+  const store = await storeOf(page);
+  assert.ok(store.completed["6"] && store.notes["6"] === "free user's note" && store.bookmarked.includes(6));
+  await page.goto("/settings");
+  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Export Progress" }).click()]);
+  assert.match(download.suggestedFilename(), /^algoverse-progress-.*\.json$/);
+  await context.close();
+});
+
+test("Pro user gets the video (on YouTube) and article links; after Pro expires they're locked again, local data kept", async () => {
+  const { context, page } = await newPage(CONFIGURED);
+  await signUpInUi(page, `res-pro-${Date.now()}@example.com`);
+  const { uid } = await profileOf(page);
+  await grantProInEmulator(uid);
+  await page.goto("/problems/6");
+  await page.getByTestId("watch-video").waitFor();
+  assert.match(await page.getByTestId("watch-video").getAttribute("href"), /^https:\/\/www\.youtube\.com\/watch\?v=[A-Za-z0-9_-]{11}/);
+  assert.equal(await page.getByTestId("watch-video").getAttribute("target"), "_blank");
+  assert.match(await page.getByTestId("read-article").getAttribute("href"), /^https:\/\/takeuforward\.org\//);
+  assert.equal(await page.locator("iframe").count(), 0, "no embedded player for Pro either");
+  await page.getByRole("button", { name: "Mark Completed" }).click();
+  await page.waitForTimeout(500);
+
+  // Pro expires (server-side): links locked again; the device's progress is untouched.
+  const res = await fetch(`${DB_HOST}/v1/projects/demo-algoverse/databases/(default)/documents/entitlements/${uid}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer owner" },
+    body: JSON.stringify({ fields: { plan: { stringValue: "pro" }, expiresAt: { timestampValue: new Date(Date.now() - 60_000).toISOString() } } }),
+  });
+  assert.equal(res.status, 200);
+  await page.reload();
+  await page.getByTestId("locked-video").waitFor();
+  assert.equal(await page.getByTestId("watch-video").count(), 0);
+  assert.ok((await storeOf(page)).completed["6"], "local progress kept after Pro expired");
   await context.close();
 });

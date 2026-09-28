@@ -178,20 +178,25 @@ test("preference ops are validated and coalesced", () => {
 
 const plans = await import("@/lib/plans");
 
-test("plan config: comparison agrees with enforced features, price and honesty flags", () => {
-  const sync = plans.FEATURE_MATRIX.find((r) => r.id === "cloud-sync")!;
-  assert.equal(sync.free, plans.PLANS.free.features.cloudSync, "Free cloud sync matches enforcement");
-  assert.equal(sync.pro, plans.PLANS.pro.features.cloudSync, "Pro cloud sync matches enforcement");
-  assert.equal(sync.availability, "available");
-  assert.equal(plans.PRICING.proMonthly, 30, "owner decision: ₹30/month");
-  assert.equal(plans.formatPrice(30), "₹30");
-  assert.equal(plans.PRICING.paymentsEnabled, false, "no checkout before Phase 4");
-  assert.equal(plans.PRICING.approved, false, "feature list is a proposal until approved");
-  for (const r of plans.FEATURE_MATRIX) {
-    assert.ok(r.label && r.description, `${r.id} described`);
-    assert.ok(r.pro !== false, `${r.id}: Pro never has less than Free`);
+test("approved plans: all problems free; articles, videos and sync are Pro; config matches enforcement", () => {
+  const row = (id: string) => plans.FEATURE_MATRIX.find((r) => r.id === id)!;
+  assert.deepEqual([row("problems").free, row("problems").pro], ["Unlimited access", "Unlimited access"]);
+  for (const id of ["navigation", "local-progress", "local-data", "account"]) assert.equal(row(id).free, true, `${id} free`);
+  for (const id of ["articles", "videos", "cloud-sync"]) {
+    assert.equal(row(id).free, false, `${id} not in Free`);
+    assert.equal(row(id).pro, true, `${id} in Pro`);
+    assert.equal(row(id).availability, "available");
   }
+  for (const id of ["ai-helper", "analytics", "interview-prep", "personal-roadmap"]) assert.equal(row(id).availability, "planned", `${id} planned`);
+  assert.equal(plans.PLANS.free.features.learningResources, false);
+  assert.equal(plans.PLANS.pro.features.learningResources, true);
+  assert.equal(plans.PLANS.free.features.cloudSync, false);
+  assert.equal(plans.PLANS.pro.features.cloudSync, true);
+  assert.equal(plans.PRICING.proMonthly, 30);
+  assert.equal(plans.PRICING.approved, true);
+  assert.equal(plans.PRICING.paymentsEnabled, false, "no checkout before Phase 4");
+  assert.equal(plans.PLAN_SUMMARY, "All 455 DSA problems are free. Pro unlocks articles, videos, and cloud sync.");
   const { available, planned } = plans.proBenefits();
-  assert.deepEqual(available.map((r) => r.id), ["cloud-sync"], "only built features are listed as available");
-  assert.ok(planned.every((r) => r.availability === "planned"));
+  assert.deepEqual(available.map((r) => r.id), ["articles", "videos", "cloud-sync"]);
+  assert.deepEqual(planned.map((r) => r.id), ["ai-helper", "analytics", "interview-prep", "personal-roadmap"]);
 });

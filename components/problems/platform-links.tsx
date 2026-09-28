@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { BookOpen, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PLATFORM_LABELS, PLATFORM_PRIORITY, platformLabel } from "@/lib/constants";
@@ -94,38 +95,39 @@ export function PlatformAvailability({ problem }: { problem: Pick<Problem, "plat
 }
 
 /**
- * "📖 Read Article" — opens a verified explanation of this exact problem. Renders nothing
- * when the problem has no verified article (never a broken or guessed link).
+ * "Article" — the problem has a verified explanation article (Pro). The URL isn't in the page
+ * data: this opens the problem's Learning resources section, where Pro users get the link from
+ * the server and Free users see the upgrade prompt. Renders nothing when there's no article.
  */
 export function ArticleButton({
+  problemId,
   article,
   title,
   size = "default",
   compact = false,
 }: {
+  problemId: number;
   article?: ProblemArticle;
   title: string;
   size?: "default" | "sm" | "icon";
   compact?: boolean;
 }) {
-  if (!article?.url) return null;
+  if (!article) return null;
   return (
     <Button asChild variant="outline" size={size}>
-      <a
-        href={article.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label={`Read an article about ${title} on ${article.source} (opens in new tab)`}
-        title={`Read article on ${article.source}`}
+      <Link
+        href={`/problems/${problemId}#learning-resources`}
+        aria-label={`Explanation article for ${title} (${article.source}) — Pro`}
+        title={`Article (${article.source}) — Pro`}
       >
         <BookOpen className="h-4 w-4" />
         {!compact && (
           <>
-            Read Article
-            <ExternalLink className="h-3.5 w-3.5" />
+            Article
+            <span className="rounded bg-primary/10 px-1 text-[10px] font-semibold uppercase text-primary">Pro</span>
           </>
         )}
-      </a>
+      </Link>
     </Button>
   );
 }
@@ -138,12 +140,12 @@ export function ProblemActions({ problem }: { problem: Problem }) {
       {hasSolve ? (
         <div className="flex flex-wrap gap-2">
           <PlatformLinks problem={problem} />
-          <ArticleButton article={problem.article} title={problem.title} />
+          <ArticleButton problemId={problem.id} article={problem.article} title={problem.title} />
         </div>
       ) : (
         <div className="space-y-2">
           <PlatformLinks problem={problem} />
-          <ArticleButton article={problem.article} title={problem.title} />
+          <ArticleButton problemId={problem.id} article={problem.article} title={problem.title} />
         </div>
       )}
     </div>

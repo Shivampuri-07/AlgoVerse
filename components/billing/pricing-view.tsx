@@ -8,7 +8,7 @@ import { UpgradeButton } from "@/components/billing/upgrade-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { FEATURE_MATRIX, PRICING, formatPrice, type FeatureRow } from "@/lib/plans";
+import { FEATURE_MATRIX, PLAN_SUMMARY, PRICING, formatPrice, type FeatureRow } from "@/lib/plans";
 
 function Cell({ value }: { value: boolean | string }) {
   if (value === true) return <Check className="mx-auto h-4 w-4 text-success" aria-label="Included" />;
@@ -30,20 +30,21 @@ export function PricingView() {
   const { status } = useAuth();
   const { entitlements } = useSyncSetup();
   const isPro = entitlements?.plan === "pro";
-  const freeIncludes = FEATURE_MATRIX.filter((r) => r.free === true);
-  const proAdds = FEATURE_MATRIX.filter((r) => r.pro && r.free !== true);
+  const freeIncludes = FEATURE_MATRIX.filter((r) => r.free === true || (r.availability === "available" && r.free === r.pro));
+  const proAdds = FEATURE_MATRIX.filter((r) => r.pro && r.free !== true && r.free !== r.pro);
 
   return (
     <div className="mx-auto max-w-4xl space-y-8 pb-10">
       <div className="space-y-2 text-center">
         <h1 className="text-3xl font-bold tracking-tight">Plans</h1>
-        <p className="text-muted-foreground">The whole DSA roadmap is free. Pro adds cloud sync and more as it ships.</p>
+        <p className="text-muted-foreground" data-testid="plan-summary">
+          {PLAN_SUMMARY}
+        </p>
       </div>
 
-      {(!PRICING.approved || !PRICING.paymentsEnabled) && (
-        <p role="note" data-testid="pricing-status" className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
-          {!PRICING.approved && "These plans are a proposal and may change. "}
-          {!PRICING.paymentsEnabled && "Payments aren't available yet, so Pro can't be bought today."}
+      {!PRICING.paymentsEnabled && (
+        <p role="note" data-testid="pricing-status" className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-center text-sm text-muted-foreground">
+          Payments aren&apos;t available yet, so Pro can&apos;t be bought today. Nothing will be charged.
         </p>
       )}
 
@@ -94,7 +95,6 @@ export function PricingView() {
                   )}
                   <span className={r.availability === "available" ? "" : "text-muted-foreground"}>
                     {r.label}
-                    {typeof r.pro === "string" ? ` (${r.pro})` : ""}
                     {r.availability === "planned" ? " — planned" : ""}
                   </span>
                 </li>

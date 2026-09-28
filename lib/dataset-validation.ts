@@ -13,7 +13,8 @@ export interface ValidatableProblem {
   kind?: string;
   platforms: { leetcode?: string; gfg?: string; code360?: string; other?: string };
   otherLabel?: string;
-  article?: { url: string; source: string };
+  /** The public dataset only records that an article exists; URLs are server-only (data/articles.ts). */
+  article?: { source: string; url?: string };
   related?: { platform: string; url: string; title?: string }[];
   tags?: string[];
 }
@@ -118,7 +119,9 @@ export function titleSlugSimilarity(title: string, url: string): number {
 export function validateDataset(
   problems: ValidatableProblem[],
   topics: ValidatableTopic[],
-  reviewed: ReviewedExceptions = {}
+  reviewed: ReviewedExceptions = {},
+  /** Server-only article URLs (data/articles.ts). Omitted in the browser, where article URLs are Pro-only. */
+  articles?: Readonly<Record<number, { url: string; source: string }>>
 ): ValidationReport {
   const issues: ValidationIssue[] = [];
   const checks: ValidationReport["checks"] = [];
@@ -249,13 +252,30 @@ export function validateDataset(
   for (const p of problems) {
     if (!p.article) continue;
     links.articles++;
-    if (!isHttpsUrl(p.article.url) || !ARTICLE_RULE.test(p.article.url) || !p.article.source) {
+    const art = articles ? articles[p.id] : p.article.url ? { url: p.article.url, source: p.article.source } : undefined;
+    if (!art) {
+      // In the browser only the "has an article" flag exists (URLs are Pro-only), so skip.
+      if (!articles) continue;
       articleBad.push(p.id);
-      articleMessages.push(`#${p.order} article: ${p.article.url}`);
+      articleMessages.push(`#${p.order} article flagged in the dataset but missing from data/articles.ts`);
+      continue;
     }
-    if (Object.values(p.platforms ?? {}).includes(p.article.url)) {
+    if (!isHttpsUrl(art.url) || !ARTICLE_RULE.test(art.url) || !art.source || art.source !== p.article.source) {
+      articleBad.push(p.id);
+      articleMessages.push(`#${p.order} article: ${art.url}`);
+    }
+    if (Object.values(p.platforms ?? {}).includes(art.url)) {
       articleBad.push(p.id);
       articleMessages.push(`#${p.order} article URL is also used as a Solve link`);
+    }
+  }
+  if (articles) {
+    const flagged = new Set(problems.filter((p) => p.article).map((p) => p.id));
+    for (const id of Object.keys(articles).map(Number)) {
+      if (!flagged.has(id)) {
+        articleBad.push(id);
+        articleMessages.push(`data/articles.ts has an article for id ${id}, which the dataset doesn't flag`);
+      }
     }
   }
   add(

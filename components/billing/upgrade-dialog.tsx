@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { PRICING, formatPrice, proBenefits } from "@/lib/plans";
+import { PLAN_SUMMARY, PRICING, formatPrice, proBenefits } from "@/lib/plans";
 
 /**
  * "Upgrade to Pro" — explains what Pro includes today and what's planned, with the price. There
@@ -44,6 +44,9 @@ export function UpgradeDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 text-sm">
+          <p className="text-muted-foreground" data-testid="upgrade-summary">
+            {PLAN_SUMMARY}
+          </p>
           <div className="space-y-1.5">
             <p className="font-medium">Available now</p>
             <ul className="space-y-1.5">

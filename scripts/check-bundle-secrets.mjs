@@ -40,6 +40,17 @@ for (const name of SECRET_NAMES) {
     }
   }
 }
+// Pro-only learning resources must never ship to the browser (served by GET /api/resources/[id]).
+const proResources = [];
+try {
+  const articles = readFileSync("data/articles.ts", "utf8");
+  for (const m of articles.matchAll(/url: "([^"]+)"/g)) proResources.push({ label: "Pro-only article URL", text: m[1] });
+  const videos = readFileSync("data/striverVideos.ts", "utf8");
+  for (const m of videos.matchAll(/videoId: "([A-Za-z0-9_-]{11})"/g)) proResources.push({ label: "Pro-only video id", text: m[1] });
+} catch {
+  /* data files missing: nothing to check */
+}
+
 const MARKERS = [
   { label: "PEM private key", re: /-----BEGIN (RSA )?PRIVATE KEY-----/ },
   { label: "service-account JSON", re: /"private_key_id"\s*:/ },
@@ -61,6 +72,7 @@ for (const file of walk(staticDir)) {
   files++;
   const text = readFileSync(file, "utf8");
   for (const n of needles) if (text.includes(n.text)) problems.push(`${file}: contains the ${n.label}`);
+  for (const r of proResources) if (text.includes(r.text)) problems.push(`${file}: contains a ${r.label}`);
   for (const m of MARKERS) if (m.re.test(text)) problems.push(`${file}: contains a ${m.label}`);
 }
 
@@ -68,4 +80,6 @@ if (problems.length) {
   console.error("SECRET CHECK FAILED:\n  " + problems.join("\n  "));
   process.exit(1);
 }
-console.log(`Secret check passed: ${files} browser files scanned, ${needles.length} secret values checked, no server secrets found.`);
+console.log(
+  `Secret check passed: ${files} browser files scanned, ${needles.length} secret values and ${proResources.length} Pro-only links checked, none found.`
+);
