@@ -41,7 +41,7 @@ export function AccountView({
   initialProfile: AccountProfile;
   profileLoadFailed: boolean;
 }) {
-  const { status, signOut, checkVerification, sendPasswordReset, setDisplayName, linkGoogle, checkGoogleDomain } = useAuth();
+  const { status, signOut, checkVerification, sendPasswordReset, setDisplayName, linkGoogle } = useAuth();
   const { config } = useFirebaseSetup();
   const router = useRouter();
   const params = useSearchParams();
@@ -82,11 +82,6 @@ export function AccountView({
     },
     [checkVerification, reloadProfile]
   );
-
-  // Check this hostname against Firebase's Authorized domains before any "Link Google" click.
-  React.useEffect(() => {
-    void checkGoogleDomain();
-  }, [checkGoogleDomain]);
 
   // Arriving from the verification link (continue URL /account?verified=1): ask Firebase, don't assume.
   React.useEffect(() => {

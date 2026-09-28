@@ -27,10 +27,10 @@ hostname, or a subdomain of a listed entry, with the Authorized domains of the p
 the web API key. Vercel gives every deployment its own hostname (for example
 `algo-verse-cztr4xzv3-algo-verse1.vercel.app`), and that's what the Vercel "Visit" button and
 GitHub's "View deployment" link open. Those per-deployment hostnames change on every push and
-are not covered by the branch URL. Test Google sign-in on the **branch URL**. The login page
-checks this in the background and names the exact hostname, shows which project's list was
-used, and links to the authorised address. Don't add `vercel.app` as a domain: that would
-authorise every Vercel site on the internet.
+are not covered by the branch URL. Test Google sign-in on the **branch URL**, or add the exact
+per-deployment hostname you want to use. Firebase enforces this itself, and AlgoVerse doesn't
+add its own pre-check. Don't add `vercel.app` as a domain: that would authorise every Vercel
+site on the internet.
 
 No Google Cloud Console change is needed for the web popup/redirect flow. Firebase's
 auto-created OAuth client already allows `https://algoverse-f5b48.firebaseapp.com/__/auth/handler`.

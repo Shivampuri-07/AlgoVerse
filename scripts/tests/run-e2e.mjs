@@ -24,10 +24,6 @@ if (!process.argv.includes("--skip-build")) {
   run("npx", ["next", "build"], { ...DEMO_PUBLIC, NEXT_DIST_DIR: ".next-e2e" });
   console.log("\n▶ Building without Firebase config (.next-e2e-nofb)…");
   run("npx", ["next", "build"], { ...NO_FIREBASE, NEXT_DIST_DIR: ".next-e2e-nofb" });
-  // Normal (non-emulator) SDK mode, so Firebase's real authorised-domain check runs. Tests mock
-  // Firebase's public project-config endpoint; no real project is contacted.
-  console.log("\n▶ Building with a non-emulator Firebase config (.next-e2e-live)…");
-  run("npx", ["next", "build"], { ...DEMO_PUBLIC, NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST: "", NEXT_DIST_DIR: ".next-e2e-live" });
 }
 
 console.log("\n▶ Running browser tests inside the Firebase emulators…");

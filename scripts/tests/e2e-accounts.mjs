@@ -11,8 +11,6 @@ const CONFIGURED = "http://localhost:3121";
 const UNCONFIGURED = "http://localhost:3122";
 // A build made WITHOUT the public values, served by a deployment whose environment HAS them.
 const RUNTIME_ONLY = "http://localhost:3123";
-// Non-emulator build (real SDK domain check), opened on a hostname that isn't authorised.
-const LIVE_SDK = "http://127.0.0.1:3124";
 const DEMO_PUBLIC = {
   NEXT_PUBLIC_FIREBASE_API_KEY: "demo-api-key",
   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "demo-algoverse.firebaseapp.com",
@@ -54,15 +52,10 @@ before(async () => {
   for (const k of ["FIREBASE_AUTH_EMULATOR_HOST", "FIRESTORE_EMULATOR_HOST", "FIREBASE_SERVICE_ACCOUNT_KEY", "FIREBASE_PROJECT_ID"]) delete bare[k];
   startServer(3122, ".next-e2e-nofb", bare);
   startServer(3123, ".next-e2e-nofb", { ...process.env, ...DEMO_PUBLIC, FIREBASE_PROJECT_ID: "demo-algoverse" });
-  // Server-side Admin may use the emulator; the BROWSER bundle is a normal (non-emulator) build.
-  const live = { ...process.env, FIREBASE_PROJECT_ID: "demo-algoverse", VERCEL_BRANCH_URL: "localhost", VERCEL_ENV: "preview" };
-  delete live.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST;
-  startServer(3124, ".next-e2e-live", live);
   await Promise.all([
     waitFor(`${CONFIGURED}/login`),
     waitFor(`${UNCONFIGURED}/login`),
     waitFor(`${RUNTIME_ONLY}/login`),
-    waitFor(`${LIVE_SDK}/login`),
   ]);
   browser = await chromium.launch({ channel: "chrome", headless: true });
 });
@@ -720,54 +713,6 @@ test("Google account whose email is NOT verified is not marked verified (server 
   assert.equal(profile.verifiedByGoogle, false);
 });
 
-// ------------------------------------------------------------------ real SDK authorised-domain check
-
-test("unauthorised hostname: explained up front with the exact host (same check as the SDK), and no doomed popup opens", async () => {
-  const context = await browser.newContext({ baseURL: LIVE_SDK });
-  let configRequests = 0;
-  // Firebase's public project-config endpoint (what the SDK checks): 127.0.0.1 is NOT listed.
-  await context.route("https://identitytoolkit.googleapis.com/v1/projects?**", (route) => {
-    configRequests++;
-    return route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ projectId: "demo-algoverse", authorizedDomains: ["localhost", "demo-algoverse.firebaseapp.com"] }),
-    });
-  });
-  // Nothing may reach real Google/Firebase hosts from this test.
-  await context.route(/^https:\/\/(?!identitytoolkit\.googleapis\.com\/v1\/projects).*(googleapis|firebaseapp|google)\.com\//, (route) =>
-    route.fulfill({ status: 200, contentType: "text/html", body: "<html></html>" })
-  );
-  const page = await context.newPage();
-  await page.goto("/login");
-  const expected = /this page's hostname “127\.0\.0\.1” isn't one of them \(auth\/unauthorized-domain\)/;
-  await page.getByText(expected).waitFor({ timeout: 20_000 });
-  const message = await page.getByRole("alert").filter({ hasText: "unauthorized-domain" }).innerText();
-  assert.match(message, /Authorized domains of project demo-algoverse/);
-  assert.match(message, /https:\/\/localhost is authorised — open that instead/);
-  assert.match(message, /Currently authorised: localhost, demo-algoverse\.firebaseapp\.com/, "preview shows the list");
-  assert.ok(!message.includes("demo-api-key"), "API key not shown");
-  assert.equal(configRequests, 1, "one background check of the project's authorised domains");
-  const link = page.getByRole("link", { name: "Open the authorised address" });
-  assert.equal(await link.getAttribute("href"), "https://localhost/login");
-
-  // Clicking doesn't open a popup that Firebase would reject anyway.
-  await waitGoogleReady(page);
-  const popup = page.waitForEvent("popup", { timeout: 3_000 }).catch(() => null);
-  await googleButton(page).click();
-  assert.equal(await popup, null, "no popup opened");
-  assert.ok(await page.getByText(expected).isVisible());
-  assert.ok(page.url().includes("/login"), "no sign-in happened");
-
-  // An AUTHORISED hostname gets no warning (same build, localhost is listed).
-  const ok = await context.newPage();
-  await ok.goto("http://localhost:3124/login");
-  await waitGoogleReady(ok);
-  await ok.waitForTimeout(1500);
-  assert.equal(await ok.getByText(/unauthorized-domain/).count(), 0, "no false alarm on an authorised host");
-  await context.close();
-});
-
 // ------------------------------------------------------------------ cloud sync (Pro), two devices
 
 const DB_HOST = `http://${process.env.FIRESTORE_EMULATOR_HOST ?? "127.0.0.1:8080"}`;
@@ -964,40 +909,5 @@ test("sync: a device holding another account's data asks before touching it, and
   assert.ok(backup && JSON.parse(backup.store).state.completed["6"], "A's device data was backed up first");
   const cloudB = await cloudOf(page);
   assert.equal(cloudB.progress.length, 0, "A's progress was not merged into B");
-  await context.close();
-});
-
-test("regression: Firebase reporting the numeric project number is NOT a key mismatch and doesn't block Google", async () => {
-  const context = await browser.newContext({ baseURL: "http://localhost:3124" });
-  // Real endpoint behaviour: "projectId" holds the project NUMBER. The test build's App ID is
-  // 1:000000000000:web:demo, i.e. project number 000000000000 — the same project.
-  await context.route("https://identitytoolkit.googleapis.com/v1/projects?**", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ projectId: "000000000000", authorizedDomains: ["localhost"] }) })
-  );
-  await context.route(/^https:\/\/(?!identitytoolkit\.googleapis\.com\/v1\/projects).*(googleapis|firebaseapp|google)\.com\//, (route) =>
-    route.fulfill({ status: 200, contentType: "text/html", body: "<html></html>" })
-  );
-  const page = await context.newPage();
-  await page.goto("/login");
-  await waitGoogleReady(page);
-  await page.waitForTimeout(2000); // background check done
-  assert.equal(await page.getByText(/different Firebase project|belongs to project/).count(), 0, "no false mismatch");
-  assert.equal(await page.getByText(/unauthorized-domain/).count(), 0, "authorised host, no warning");
-  // The click isn't blocked by our check: it hands over to the Firebase SDK (button goes busy)
-  // and no mismatch/domain error is shown. (The SDK's own popup needs firebaseapp.com, which
-  // this sealed test doesn't reach.)
-  await googleButton(page).click();
-  await page.waitForFunction(() => {
-    const b = [...document.querySelectorAll("button")].find((x) => x.textContent?.includes("Continue with Google"));
-    return b?.disabled === true;
-  });
-  await page.waitForTimeout(1500);
-  assert.equal(await page.getByText(/different Firebase project|unauthorized-domain/).count(), 0, "not blocked");
-
-  // On an unauthorised host the message names the configured project, not a bare number.
-  const other = await context.newPage();
-  await other.goto("http://127.0.0.1:3124/login");
-  await other.getByText(/this page's hostname “127\.0\.0\.1” isn't one of them/).waitFor({ timeout: 20_000 });
-  assert.equal(await other.getByText(/different Firebase project/).count(), 0);
   await context.close();
 });

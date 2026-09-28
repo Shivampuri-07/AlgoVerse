@@ -15,16 +15,6 @@ export function allowSetupDetails(): boolean {
   return vercelEnv() !== "production";
 }
 
-/**
- * Stable public hostnames for this deployment (Vercel's per-branch URL and the production URL).
- * Used to suggest an authorised address when a per-deployment URL isn't authorised in Firebase.
- */
-export function stableHosts(): string[] {
-  return [env["VERCEL_BRANCH_URL"], env["VERCEL_PROJECT_PRODUCTION_URL"]]
-    .map((h) => h?.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "") ?? "")
-    .filter((h, i, all) => h !== "" && all.indexOf(h) === i);
-}
-
 export function deploymentInfo(): DeploymentInfo | null {
   if (!allowSetupDetails()) return null;
   return {

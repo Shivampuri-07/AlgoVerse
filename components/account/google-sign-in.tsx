@@ -5,8 +5,6 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/components/providers/auth-provider";
-import { useFirebaseSetup } from "@/components/providers/firebase-config-provider";
-import { describeDomainDiagnosis } from "@/lib/auth/authorized-domains";
 import { FormMessage } from "@/components/account/auth-card";
 import { Button } from "@/components/ui/button";
 
@@ -45,24 +43,16 @@ export function GoogleSignIn({ next, disabled, onLinkRequired, showExistingAccou
   /** Firebase needs the existing account's password before Google can be linked. */
   onLinkRequired: (email: string | null) => void;
 }) {
-  const { signInWithGoogle, signInWithGoogleRedirect, checkGoogleDomain, googleDomainIssue } = useAuth();
-  const { details } = useFirebaseSetup();
-
-  // Background check of this hostname against Firebase's Authorized domains, before any click.
-  React.useEffect(() => {
-    void checkGoogleDomain();
-  }, [checkGoogleDomain]);
+  const { signInWithGoogle, signInWithGoogleRedirect } = useAuth();
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [popupBlocked, setPopupBlocked] = React.useState(false);
-  const [authorizedUrl, setAuthorizedUrl] = React.useState<string | null>(null);
 
   async function run(redirect: boolean) {
     if (busy) return;
     setBusy(true);
     setError(null);
-    setAuthorizedUrl(null);
     const outcome = redirect ? await signInWithGoogleRedirect() : await signInWithGoogle();
     switch (outcome.status) {
       case "signed-in":
@@ -84,7 +74,6 @@ export function GoogleSignIn({ next, disabled, onLinkRequired, showExistingAccou
         break;
       case "error":
         setPopupBlocked(outcome.code === "auth/popup-blocked");
-        setAuthorizedUrl(outcome.domainDiagnosis?.authorizedAlternativeUrl ?? null);
         setError(outcome.message);
         break;
       default:
@@ -95,18 +84,7 @@ export function GoogleSignIn({ next, disabled, onLinkRequired, showExistingAccou
 
   return (
     <div className="space-y-3">
-      {error ? (
-        <FormMessage tone="error">{error}</FormMessage>
-      ) : (
-        googleDomainIssue && <FormMessage tone="error">{describeDomainDiagnosis(googleDomainIssue, details)}</FormMessage>
-      )}
-      {(authorizedUrl ?? googleDomainIssue?.authorizedAlternativeUrl) && (
-        <Button asChild variant="secondary" className="w-full">
-          <a href={`${authorizedUrl ?? googleDomainIssue?.authorizedAlternativeUrl}${window.location.pathname}${window.location.search}`}>
-            Open the authorised address
-          </a>
-        </Button>
-      )}
+      {error && <FormMessage tone="error">{error}</FormMessage>}
       <Button type="button" variant="outline" className="w-full" onClick={() => run(false)} disabled={busy || disabled}>
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleMark />}
         Continue with Google

@@ -7,7 +7,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { THEME_COOKIE, parseThemePreference, themeClassName } from "@/lib/theme";
 import { APP_NAME, APP_SHORT_DESCRIPTION } from "@/lib/constants";
 import { getPublicConfigState } from "@/lib/firebase/runtime-config";
-import { allowSetupDetails, deploymentInfo, stableHosts } from "@/lib/firebase/deployment";
+import { allowSetupDetails, deploymentInfo } from "@/lib/firebase/deployment";
 import "./globals.css";
 
 const inter = Inter({
@@ -69,12 +69,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const theme = parseThemePreference((await cookies()).get(THEME_COOKIE)?.value);
   // Public Firebase web config, resolved per request so sign-in works even if a build didn't
   // get the NEXT_PUBLIC_ values inlined. Public values only — never server credentials.
-  const firebase = {
-    ...getPublicConfigState(),
-    details: allowSetupDetails(),
-    deployment: deploymentInfo(),
-    stableHosts: stableHosts(),
-  };
+  const firebase = { ...getPublicConfigState(), details: allowSetupDetails(), deployment: deploymentInfo() };
   return (
     <html lang="en" className={themeClassName(theme)}>
       <body className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
