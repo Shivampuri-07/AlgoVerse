@@ -27,6 +27,12 @@ yarn-error.log*
 .env*.local
 .env
 
+# Firebase service-account keys (never commit): keep downloads in /.secrets/
+/.secrets/
+*-firebase-adminsdk-*.json
+*service-account*.json
+*serviceAccount*.json
+
 # vercel
 .vercel
 
