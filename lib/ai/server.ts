@@ -39,9 +39,25 @@ export function usesLowThinking(model: string): boolean {
 
 const PLACEHOLDER_KEYS = new Set(["", "your_key_here", "your-key-here", "changeme", "AIza..."]);
 
-export function getApiKey(): string | null {
-  const key = process.env.GEMINI_API_KEY?.trim() ?? "";
-  return PLACEHOLDER_KEYS.has(key) ? null : key;
+export type ApiKeyState = "ok" | "missing" | "preview_unscoped";
+
+/**
+ * Whether the server has a Gemini key it may use.
+ *
+ * Preview isolation: on a Vercel Preview deployment the key is used only when it is marked as the
+ * Preview key — GEMINI_KEY_SCOPE=preview, set next to it in the Preview (branch) scope. Without the
+ * marker a Preview would silently fall back to a shared "Production, Preview" GEMINI_API_KEY, i.e.
+ * spend Production's key and quota. Production and local development are unaffected.
+ */
+export function apiKeyState(env: Record<string, string | undefined> = process.env): ApiKeyState {
+  const key = env["GEMINI_API_KEY"]?.trim() ?? "";
+  if (PLACEHOLDER_KEYS.has(key)) return "missing";
+  if (env["VERCEL_ENV"] === "preview" && env["GEMINI_KEY_SCOPE"]?.trim() !== "preview") return "preview_unscoped";
+  return "ok";
+}
+
+export function getApiKey(env: Record<string, string | undefined> = process.env): string | null {
+  return apiKeyState(env) === "ok" ? env["GEMINI_API_KEY"]!.trim() : null;
 }
 
 // ---------------------------------------------------------------------------------- prompt

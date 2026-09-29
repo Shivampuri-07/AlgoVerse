@@ -6,6 +6,7 @@ import { allowSetupDetails, deploymentInfo, vercelEnv } from "@/lib/firebase/dep
 import { getPublicConfigState, readRuntimePublicVars } from "@/lib/firebase/runtime-config";
 import { unexpectedFirebaseNames } from "@/scripts/firebase-env-report.mjs";
 import { globalDailyLimit } from "@/lib/ai/usage";
+import { apiKeyState } from "@/lib/ai/server";
 import { checkAuthorizedDomains, requestHostname } from "@/lib/firebase/authorized-domains";
 import { stableHost as vercelStableHost } from "@/lib/firebase/deployment";
 
@@ -122,6 +123,8 @@ export async function GET(req: Request): Promise<Response> {
     firebaseProjectId: resolved.config?.projectId ?? null,
     aiGlobalDailyLimit: globalDailyLimit(),
     hasGeminiKey: Boolean(process.env["GEMINI_API_KEY"]?.trim()),
+    // "ok" | "missing" (unset or a placeholder) | "preview_unscoped" (a Preview without its own key)
+    geminiKeyState: apiKeyState(),
     unrecognisedFirebaseVariableNames: unexpectedFirebaseNames(process.env),
   });
 }

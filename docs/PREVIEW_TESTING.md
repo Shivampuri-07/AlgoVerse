@@ -37,9 +37,26 @@ Production share one AI daily cap. A separate **Preview project** isolates all o
 
 ## 2. Gemini key for Preview (Google AI Studio)
 
-Create a key in a **separate Google Cloud project** (AI Studio → Get API key → Create API key
-in a new project). Gemini rate limits are applied **per project, not per key**, so a key in the
-same project as the Production key would share its free quota. Keep billing off on that project.
+Create a key in a **separate Google Cloud project** — not the Production key's project (AI Studio →
+Get API key → Create API key → choose/create a project such as `algoverse-preview`). Gemini rate
+limits are applied **per project, not per key**, so a key in the Production key's project would
+share its free quota. Keep billing off on that project.
+
+Store it without pasting it anywhere else: add `GEMINI_API_KEY=...` to the git-ignored
+`.env.preview.local` yourself (or set it directly in Vercel, §3). Then replace the Vercel
+placeholder from that file without printing it:
+
+```bash
+# reads the value from .env.preview.local; nothing is echoed
+grep '^GEMINI_API_KEY=' .env.preview.local | cut -d= -f2- | tr -d '\n' | \
+  npx vercel env add GEMINI_API_KEY preview --git-branch feat/accounts-firebase --type secret --force --yes
+```
+
+**Preview isolation (code):** on a Vercel Preview the server uses a Gemini key only when
+`GEMINI_KEY_SCOPE=preview` is set next to it (lib/ai/server.ts `apiKeyState`). Without it a
+Preview would fall back to the shared "Production, Preview" `GEMINI_API_KEY`; instead the AI
+helper reports "not set up" (`geminiKeyState: "preview_unscoped"` in diagnostics). Production and
+local development are unaffected. The placeholder `your_key_here` counts as no key.
 
 ## 3. Vercel Preview variables (Settings → Environment Variables)
 
@@ -47,23 +64,30 @@ same project as the Production key would share its free quota. Keep billing off 
 Do not edit or re-scope existing variables: a branch-specific Preview variable overrides other
 Preview variables of the same name, so Production entries stay untouched.
 
-| Variable | Value | Secret? |
-|---|---|---|
-| `NEXT_PUBLIC_FIREBASE_API_KEY` | Preview web config `apiKey` | public |
-| `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | `<preview-project-id>.firebaseapp.com` | public |
-| `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | `<preview-project-id>` | public |
-| `NEXT_PUBLIC_FIREBASE_APP_ID` | Preview web config `appId` | public |
-| `FIREBASE_SERVICE_ACCOUNT_KEY` | base64 of the Preview service-account JSON | **secret** |
-| `GEMINI_API_KEY` | the Preview Gemini key | **secret** |
-| `AI_GLOBAL_DAILY_LIMIT` | `30` (see §6) | no |
+Current state (2026-09-29, read with `vercel env ls`):
 
-- Copy the base64 without printing it: `base64 -i .secrets/<file>.json | pbcopy` (macOS), then paste into Vercel.
+| Variable | Scope | Type | Value |
+|---|---|---|---|
+| `NEXT_PUBLIC_FIREBASE_API_KEY` | Preview (feat/accounts-firebase) | Config | `algoverse-preview` web app |
+| `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | Preview (feat/accounts-firebase) | Config | `algoverse-preview.firebaseapp.com` |
+| `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Preview (feat/accounts-firebase) | Config | `algoverse-preview` |
+| `NEXT_PUBLIC_FIREBASE_APP_ID` | Preview (feat/accounts-firebase) | Config | `algoverse-preview` web app |
+| `FIREBASE_SERVICE_ACCOUNT_KEY` | Preview (feat/accounts-firebase) | Secret | base64 of the `algoverse-preview` service account |
+| `AI_GLOBAL_DAILY_LIMIT` | Preview (feat/accounts-firebase) | Config | `30` |
+| `GEMINI_KEY_SCOPE` | Preview (feat/accounts-firebase) | Config | `preview` |
+| `GEMINI_API_KEY` | Preview (feat/accounts-firebase) | Secret | **placeholder `your_key_here`** — replace with the Preview key |
+| the six above without `GEMINI_KEY_SCOPE`/`AI_GLOBAL_DAILY_LIMIT` | Production, Preview | — | Production values — **untouched** |
+
+- Local copy of the Preview values: `.env.preview.local` (git-ignored; values never printed).
 - The four public values and the service account **must be from the same project** — otherwise
   the server reports `project_mismatch` and sign-in fails (a built-in safety check).
 - Leave unset on Preview: `CLOUD_SYNC_PREVIEW_OPEN` (test real Pro instead), all `RAZORPAY_*`
   (payments stay off; `PRICING.paymentsEnabled` is false in code anyway), `GEMINI_MODEL`.
-- Variable changes apply only to **new** deployments: redeploy the branch's latest Preview
-  (Deployments → the Preview → Redeploy). That builds the Preview only.
+- Variable changes apply only to **new** deployments. Redeploy the branch's latest Preview only:
+  `npx vercel redeploy <latest branch deployment URL> --target preview --scope algo-verse1`
+  (or Deployments → the Preview → Redeploy). A new commit pushed to the branch also rebuilds it.
+- Don't `vercel link` in this folder: it offers to pull variables into `.env.local`. Use
+  `VERCEL_ORG_ID`/`VERCEL_PROJECT_ID` with the CLI instead.
 
 ## 4. Getting into the Preview privately (Vercel Deployment Protection)
 
@@ -80,9 +104,10 @@ Keep it on; no setting change is needed:
 ## 5. Check the Preview uses the Preview project (before testing anything)
 
 - `…/api/auth/diagnostics` on the branch URL (Preview only; names and booleans, no secrets):
-  `environment: "preview"`, `adminCredentialState: "ok"`, `browserSignInConfigured: true`, and —
-  once this repo's diagnostics change is deployed — `firebaseProjectId` = your Preview project,
-  `aiGlobalDailyLimit: 30`, `hasGeminiKey: true`.
+  `environment: "preview"`, `adminCredentialState: "ok"`, `browserSignInConfigured: true`,
+  `firebaseProjectId` = your Preview project, `aiGlobalDailyLimit: 30`, `geminiKeyState: "ok"`
+  (only once the real Preview key and `GEMINI_KEY_SCOPE=preview` are deployed), and
+  `googleSignIn.clientAndServerSameProject: true`.
 - Without that change: View Source on any page and search for `projectId` — it is the public
   web config.
 - If it shows `algoverse-f5b48`, **stop**: the Preview is still on Production.

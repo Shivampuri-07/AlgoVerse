@@ -655,3 +655,36 @@ test("20. logs from all of the above never contain the key, tokens or provider m
     assert.ok(!/API key not valid|exceeded your current quota|internal details|@example\.com/.test(e), e);
   }
 });
+
+test("21. Preview isolation: a Preview never falls back to a shared (Production) Gemini key", async () => {
+  reset();
+  mockGemini(ok);
+  const { apiKeyState, getApiKey } = server;
+  const k = { GEMINI_API_KEY: FAKE_KEY };
+  assert.equal(apiKeyState({ ...k, VERCEL_ENV: "production" }), "ok", "Production unchanged");
+  assert.equal(apiKeyState({ ...k }), "ok", "local development unchanged");
+  assert.equal(apiKeyState({ ...k, VERCEL_ENV: "preview" }), "preview_unscoped", "Preview with only the shared key → refused");
+  assert.equal(getApiKey({ ...k, VERCEL_ENV: "preview" }), null);
+  assert.equal(apiKeyState({ ...k, VERCEL_ENV: "preview", GEMINI_KEY_SCOPE: "preview" }), "ok", "Preview with its own marked key → used");
+  assert.equal(apiKeyState({ GEMINI_API_KEY: "your_key_here", VERCEL_ENV: "preview", GEMINI_KEY_SCOPE: "preview" }), "missing", "placeholder is never a key");
+  // Through the real handler: a Preview without its own key answers not_configured and never calls Gemini.
+  const saved = { v: process.env.VERCEL_ENV, s: process.env.GEMINI_KEY_SCOPE };
+  process.env.VERCEL_ENV = "preview";
+  delete process.env.GEMINI_KEY_SCOPE;
+  try {
+    calls = [];
+    const r = await route.POST(req(body, undefined, undefined, "preview-user"));
+    assert.equal(r.status, 503);
+    assert.equal((await jsonOf(r)).error.code, "not_configured");
+    assert.equal(calls.length, 0, "the shared key was not used");
+    assert.ok(errors.some((e) => /Preview deployment without its own Gemini key/.test(e)));
+    process.env.GEMINI_KEY_SCOPE = "preview";
+    clock += 61_000;
+    const ok2 = await route.POST(req(body, undefined, undefined, "preview-user"));
+    assert.equal(ok2.status, 200, "with GEMINI_KEY_SCOPE=preview the Preview key is used");
+    await ok2.text();
+  } finally {
+    if (saved.v === undefined) delete process.env.VERCEL_ENV; else process.env.VERCEL_ENV = saved.v;
+    if (saved.s === undefined) delete process.env.GEMINI_KEY_SCOPE; else process.env.GEMINI_KEY_SCOPE = saved.s;
+  }
+});

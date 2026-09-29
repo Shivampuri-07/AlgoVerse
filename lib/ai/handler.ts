@@ -7,6 +7,7 @@ import {
   canFallBack,
   errorPayload,
   getApiKey,
+  apiKeyState,
   mapGeminiError,
   parseRequestBody,
   resolveModels,
@@ -130,7 +131,11 @@ async function checkAccess(req: Request, deps: AiDeps): Promise<Access> {
 export async function handleAiPost(req: Request, deps: AiDeps): Promise<Response> {
   const apiKey = getApiKey();
   if (!apiKey) {
-    console.error("[ai] GEMINI_API_KEY is not set on the server");
+    console.error(
+      apiKeyState() === "preview_unscoped"
+        ? "[ai] Preview deployment without its own Gemini key (GEMINI_KEY_SCOPE=preview is not set) — refusing to use a shared key"
+        : "[ai] GEMINI_API_KEY is not set on the server"
+    );
     return fail("not_configured", 503);
   }
   // Cheap per-instance flood guard before any Firebase work (the real limits are per account).
