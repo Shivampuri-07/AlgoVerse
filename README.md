@@ -195,6 +195,16 @@ code, streak) lives in one Zustand store (`lib/store.ts`), persisted to
 `localStorage["dsa-roadmap-storage"]` through `lib/storage-adapter.ts` — the only file that
 stores progress in `localStorage`.
 
+**Accounts on one device (`lib/workspace.ts`):** that live store belongs to one owner at a
+time — the signed-out guest, or one account (the Firebase user). When someone signs out or a
+different account signs in, the live data (store + sync bookkeeping) is **moved** into a parked
+copy for its owner (`algoverse-workspace:<owner>`) and the new owner's copy is loaded. Nothing is
+deleted: each account's progress comes back when it signs in again, and one account never sees
+another's progress, notes, bookmarks or streak. Signed-out progress goes into an account only
+when the account was just created on this device (sign-up keeps your progress) or when you
+choose "Add to this account". On devices from before this change, data that was synced with an
+account belongs to that account; anything else is treated as signed-out progress.
+
 **Upgrading from the 152-problem version:** the stored data carries a version number.
 Data from the earlier version is migrated automatically on first load:
 

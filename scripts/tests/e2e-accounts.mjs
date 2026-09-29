@@ -200,7 +200,7 @@ test("sign-up validation messages, confirmation and password visibility toggle",
   await context.close();
 });
 
-test("full journey: sign up → session cookie → refresh → log out → log in; local progress untouched", async () => {
+test("full journey: sign up → session cookie → refresh → log out → log in; the account keeps its progress", async () => {
   const email = `e2e-${Date.now()}@example.com`;
   const password = "letters123";
   const { context, page } = await newPage(CONFIGURED);
@@ -267,7 +267,9 @@ test("full journey: sign up → session cookie → refresh → log out → log i
   assert.ok(!(await context.cookies()).some((c) => c.name === "algoverse_session" && c.value), "cookie cleared");
   await page.goto("/account");
   await page.waitForURL((u) => u.pathname === "/login" && u.searchParams.get("next") === "/account");
-  assert.equal(await readProgress(page), before, "log-out didn't change local progress");
+  // Logged out: the account's progress is put away (not deleted) — the signed-out view doesn't show it.
+  assert.deepEqual(Object.keys(JSON.parse((await readProgress(page)) ?? '{"state":{"completed":{}}}').state.completed), [], "log-out hides the account's progress");
+  assert.ok(await page.evaluate(() => Object.keys(localStorage).some((k) => k.startsWith("algoverse-workspace:user:"))), "…and keeps it on the device");
 
   // Wrong password → clear error; right password → back to /account.
   await page.waitForFunction(() => !document.querySelector('button[type="submit"]')?.disabled);
@@ -279,7 +281,7 @@ test("full journey: sign up → session cookie → refresh → log out → log i
   await page.getByRole("button", { name: "Log in" }).click();
   await page.waitForURL("**/account");
   await page.getByText(email).first().waitFor();
-  assert.equal(await readProgress(page), before, "log-in didn't change local progress");
+  assert.deepEqual(JSON.parse(await readProgress(page)).state, JSON.parse(before).state, "log-in brings the account's progress back intact");
 
   // Existing app still works while signed in.
   await page.goto("/problems");
@@ -881,7 +883,7 @@ test("sync: offline changes are kept and uploaded when the connection returns", 
   await context.close();
 });
 
-test("sync: a device holding another account's data asks before touching it, and backs it up before switching", async () => {
+test("sync: two Pro accounts on one device each see only their own data; nothing crosses between them", async () => {
   const a = `sync-owner-a-${Date.now()}@example.com`;
   const b = `sync-owner-b-${Date.now()}@example.com`;
   const { context, page } = await newPage(CONFIGURED);
@@ -896,24 +898,31 @@ test("sync: a device holding another account's data asks before touching it, and
   await page.getByRole("button", { name: /Account menu/ }).click();
   await page.getByRole("menuitem", { name: "Log out" }).click();
   await page.locator("header").getByRole("link", { name: "Log in" }).waitFor();
-  assert.ok((await storeOf(page)).completed["6"], "logging out keeps the device's progress");
+  assert.equal((await storeOf(page)).completed["6"], undefined, "logged out: A's progress isn't shown");
 
-  // Account B (Pro) signs in on the same device.
+  // Account B (Pro) signs up on the same device: starts with its own (empty) data, no dialog needed.
   await signUpInUi(page, b);
   await grantProInEmulator((await profileOf(page)).uid);
   await page.reload();
-  await page.getByText("This device has progress from another account").waitFor();
-  await page.getByRole("button", { name: "Use this account's cloud data" }).click();
+  await waitSynced(page);
+  assert.equal(await page.getByText("This device has progress from another account").count(), 0);
+  assert.equal((await storeOf(page)).completed["6"], undefined, "B sees only B's data");
+  await page.goto("/problems/12");
+  await page.getByRole("button", { name: "Mark Completed" }).click();
+  await waitCloud(page, (c) => c.progress.some((p) => p.id === 12 && !p.deleted), "B's completion");
+  const cloudB = await cloudOf(page);
+  assert.deepEqual(cloudB.progress.filter((p) => !p.deleted).map((p) => p.id), [12], "A's progress was not merged into B");
+
+  // A logs back in: A's progress is back, B's isn't in it.
+  await page.getByRole("button", { name: /Account menu/ }).click();
+  await page.getByRole("menuitem", { name: "Log out" }).click();
+  await page.locator("header").getByRole("link", { name: "Log in" }).waitFor();
+  await logInInUi(page, a);
   await waitSynced(page);
   const store = await storeOf(page);
-  assert.equal(store.completed["6"], undefined, "B sees only B's (empty) cloud data");
-  const backup = await page.evaluate(() => {
-    const k = Object.keys(localStorage).find((x) => x.startsWith("algoverse-local-backup:"));
-    return k ? JSON.parse(localStorage.getItem(k)) : null;
-  });
-  assert.ok(backup && JSON.parse(backup.store).state.completed["6"], "A's device data was backed up first");
-  const cloudB = await cloudOf(page);
-  assert.equal(cloudB.progress.length, 0, "A's progress was not merged into B");
+  assert.ok(store.completed["6"], "A's progress restored");
+  assert.equal(store.completed["12"], undefined, "B's progress not shown to A");
+  assert.deepEqual((await cloudOf(page)).progress.filter((p) => !p.deleted).map((p) => p.id), [6]);
   await context.close();
 });
 
@@ -1035,6 +1044,92 @@ test("billing: a Pro account (server entitlement) sees Pro, its end date and 'Yo
   await page.evaluate((u) => localStorage.setItem(`algoverse-entitlements:${u}`, JSON.stringify({ plan: "free" })), uid);
   await page.goto("/account/billing");
   assert.match(await page.getByTestId("current-plan").innerText(), /Pro/);
+  await context.close();
+});
+
+// ------------------------------------------------------------------ account isolation on one device
+
+test("account isolation: A (Google, verified, Pro) → log out → B sees none of A's progress or verification; A's data comes back", async () => {
+  const { context, page } = await newPage(CONFIGURED);
+  const aEmail = `iso-a-${Date.now()}@example.com`;
+  const bEmail = `iso-b-${Date.now()}@example.com`;
+  await fetch(`${AUTH}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=demo-api-key`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: bEmail, password: "letters123", returnSecureToken: true }),
+  });
+  // Signed-out practice before anyone logs in (guest progress).
+  await page.goto("/problems/9");
+  await page.getByRole("button", { name: "Mark Completed" }).click();
+  await page.waitForTimeout(400);
+
+  // A: new Google account (created here, so the guest progress is A's), Pro, completes 1-3.
+  await page.goto("/signup");
+  await waitGoogleReady(page);
+  await googlePopup(page, googleButton(page), aEmail);
+  await page.waitForURL("**/account**");
+  await page.getByText(/Email verified through Google/).waitFor();
+  const a = await profileOf(page);
+  await grantProInEmulator(a.uid);
+  await page.reload();
+  // A's local progress (the signed-out problem 9, kept at sign-up) → the usual first-sync choice.
+  await page.getByText("Sync this device's progress to your account?").waitFor();
+  await page.getByRole("button", { name: "Import and merge" }).click();
+  await waitSynced(page);
+  for (const id of [1, 2, 3]) {
+    await page.goto(`/problems/${id}`);
+    await page.getByRole("button", { name: "Mark Completed" }).click();
+    await page.waitForTimeout(250);
+  }
+  await page.goto("/account");
+  await waitSynced(page);
+  assert.deepEqual(Object.keys((await storeOf(page)).completed).sort(), ["1", "2", "3", "9"]);
+
+  // A logs out: A's progress is no longer shown (and not deleted).
+  await page.getByRole("button", { name: /Account menu/ }).click();
+  await page.getByRole("menuitem", { name: "Log out" }).click();
+  await page.waitForURL(`${CONFIGURED}/`);
+  await headerLogin(page).waitFor();
+  assert.deepEqual(Object.keys((await storeOf(page)).completed), [], "signed out: A's progress hidden");
+  assert.match(await page.locator("main").innerText(), /0 \/ 455/);
+
+  // B logs in (existing email/password account, not verified).
+  await headerLogin(page).click();
+  await page.waitForURL("**/login**");
+  await page.waitForFunction(() => !document.querySelector('button[type="submit"]')?.disabled);
+  await page.getByLabel("Email").fill(bEmail);
+  await page.getByLabel("Password", { exact: true }).fill("letters123");
+  await page.getByRole("button", { name: "Log in" }).last().click();
+  await page.waitForURL("**/account**");
+  await page.getByText(bEmail).first().waitFor();
+  const accountText = await page.locator("main").innerText();
+  assert.ok(!accountText.includes(aEmail), "no trace of A's email");
+  assert.doesNotMatch(accountText, /verified through Google|Email verified/, "B isn't shown as verified");
+  assert.match(accountText, /Not verified/);
+  const b = await profileOf(page);
+  assert.notEqual(b.uid, a.uid);
+  assert.deepEqual([b.emailVerified, b.verifiedByGoogle], [false, false]);
+  const bStore = await storeOf(page);
+  assert.deepEqual([Object.keys(bStore.completed), bStore.bookmarked, Object.keys(bStore.notes)], [[], [], []], "B sees none of A's data");
+  await page.goto("/");
+  assert.match(await page.locator("main").innerText(), /0 \/ 455/, "dashboard shows B's own (empty) progress");
+  // B's own work stays B's.
+  await page.goto("/problems/20");
+  await page.getByRole("button", { name: "Mark Completed" }).click();
+  await page.waitForTimeout(400);
+
+  // B logs out (from a problem page), A logs back in with Google: A's progress is back, B's isn't in it.
+  await page.getByRole("button", { name: /Account menu/ }).click();
+  await page.getByRole("menuitem", { name: "Log out" }).click();
+  await headerLogin(page).waitFor();
+  assert.deepEqual(Object.keys((await storeOf(page)).completed), [], "B's progress hidden after B logs out");
+  await page.goto("/login");
+  await waitGoogleReady(page);
+  await googlePopup(page, googleButton(page), aEmail);
+  await page.waitForURL("**/account**");
+  await page.getByText(/Email verified through Google/).waitFor();
+  await waitSynced(page);
+  assert.deepEqual(Object.keys((await storeOf(page)).completed).sort(), ["1", "2", "3", "9"], "A's progress restored");
+  const cloud = await cloudOf(page);
+  assert.deepEqual(cloud.progress.filter((p) => !p.deleted).map((p) => p.id).sort((x, y) => x - y), [1, 2, 3, 9], "B's problem 20 never reached A's cloud");
   await context.close();
 });
 

@@ -32,6 +32,18 @@ import {
   stopSync,
   switchToCloudAndStart,
 } from "@/lib/sync/engine";
+import {
+  ACTIVE_OWNER_KEY,
+  GUEST,
+  activateWorkspace,
+  adoptGuestProgress,
+  declineGuestProgress,
+  followOtherTab,
+  guestProgressFor,
+  userOwner,
+  type GuestSummary,
+  type WorkspaceOwner,
+} from "@/lib/workspace";
 
 /**
  * Starts/stops cloud sync for the signed-in user (Pro only — decided by the server) and asks the
@@ -40,6 +52,10 @@ import {
  *   device holds ANOTHER account     → Use this account's cloud data (device data backed up) /
  *                                      Merge this device into this account / Not now
  * Nothing is ever deleted; signing out just stops syncing.
+ *
+ * Before any of that, the device's local data is switched to the signed-in account's own
+ * workspace (lib/workspace.ts): each account — and the signed-out guest — sees only its own
+ * progress, notes, bookmarks and streak on this device. Sync starts only once that switch is done.
  */
 type Prompt = null | "import" | "other-owner";
 
@@ -64,13 +80,51 @@ function counts() {
 }
 
 export function SyncProvider({ children }: { children: React.ReactNode }) {
-  const { status, user } = useAuth();
+  const { status, user, firebaseUid } = useAuth();
   const hydrated = useAppStore((s) => s.hydrated);
   const [entitlements, setEntitlements] = React.useState<EntitlementsView | null>(null);
   const [prompt, setPrompt] = React.useState<Prompt>(null);
   const [busy, setBusy] = React.useState(false);
   const [pausedOnDevice, setPausedOnDevice] = React.useState(false);
-  const uid = status === "signed-in" ? user?.uid ?? null : null;
+  const [owner, setOwner] = React.useState<WorkspaceOwner | null>(null);
+  const [guestOffer, setGuestOffer] = React.useState<GuestSummary | null>(null);
+
+  // Whose local data should be live. Signed out but Firebase still knows the user (offline, or the
+  // server session couldn't be checked): keep that person's data. Unknown yet: change nothing.
+  const target: WorkspaceOwner | null = !hydrated
+    ? null
+    : status === "signed-in" && user
+      ? userOwner(user.uid)
+      : status === "signed-out"
+        ? firebaseUid
+          ? userOwner(firebaseUid)
+          : GUEST
+        : null;
+  React.useEffect(() => {
+    if (!target) return;
+    try {
+      activateWorkspace(target);
+      setOwner(target);
+    } catch {
+      setOwner(null);
+      toast.error("This device's storage is full, so accounts can't be switched safely. Free some browser storage and reload.");
+    }
+  }, [target]);
+  // Another tab switched accounts: follow it before this tab could write stale data.
+  React.useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === ACTIVE_OWNER_KEY) followOtherTab();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+  // Sync only for the account whose data is live on this device.
+  const uid = status === "signed-in" && user && owner === userOwner(user.uid) ? user.uid : null;
+
+  // Signed-out progress on this device can be added to an account — only if the user chooses.
+  React.useEffect(() => {
+    setGuestOffer(uid ? guestProgressFor(uid) : null);
+  }, [uid]);
 
   // Theme preference sync (the theme is a cookie, not part of the progress store).
   const { theme, setTheme } = useTheme();
@@ -299,6 +353,45 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
                 >
                   {busy && <Loader2 className="h-4 w-4 animate-spin" />}
                   Use this account&apos;s cloud data
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={prompt === null && guestOffer !== null && uid !== null} onOpenChange={(open) => !open && setGuestOffer(null)}>
+        <DialogContent data-testid="guest-progress-dialog">
+          {guestOffer && uid && (
+            <>
+              <DialogHeader>
+                <DialogTitle>Add this device&apos;s signed-out progress to your account?</DialogTitle>
+                <DialogDescription>
+                  This device has progress saved while no one was signed in: {guestOffer.completed} completed problem
+                  {guestOffer.completed === 1 ? "" : "s"}, {guestOffer.bookmarks} bookmark{guestOffer.bookmarks === 1 ? "" : "s"} and
+                  notes on {guestOffer.notes} problem{guestOffer.notes === 1 ? "" : "s"}. If it isn&apos;t yours, keep it separate —
+                  it stays on this device for whoever used it.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button variant="ghost" onClick={() => setGuestOffer(null)}>
+                  Decide later
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    declineGuestProgress(uid);
+                    setGuestOffer(null);
+                  }}
+                >
+                  Keep separate
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (adoptGuestProgress(uid)) toast.success("Added this device's signed-out progress to your account.");
+                    setGuestOffer(null);
+                  }}
+                >
+                  Add to this account
                 </Button>
               </DialogFooter>
             </>

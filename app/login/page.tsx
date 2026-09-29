@@ -86,7 +86,7 @@ function LoginForm() {
   return (
     <AuthCard
       title="Log in"
-      description="Welcome back. Your progress on this device stays as it is."
+      description="Welcome back. Your account's progress on this device is kept for you."
       footer={
         <>
           New to AlgoVerse?{" "}

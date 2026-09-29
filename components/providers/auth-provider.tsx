@@ -3,6 +3,7 @@
 import * as React from "react";
 import type { Auth, User } from "firebase/auth";
 import { useFirebaseSetup } from "@/components/providers/firebase-config-provider";
+import { markNewAccount } from "@/lib/workspace";
 import {
   AccountError,
   continueUrl,
@@ -40,14 +41,21 @@ import {
  *   client user + no/other server session → create a session (needs a recent sign-in; if the
  *                                            sign-in is old, sign the client out instead)
  *   no client user + server session       → clear the server session
- * Nothing here touches the local progress store: signing in or out never changes or deletes
- * the progress saved on this device.
+ * Nothing here touches the local progress store. Whose progress is shown is decided from
+ * `firebaseUid`/`status` by lib/workspace.ts (via the sync provider): each account and the
+ * signed-out guest have their own local data, and nothing is ever deleted.
  */
 export type AuthStatus = "loading" | "signed-out" | "signed-in" | "unavailable";
 
 interface AuthContextValue {
   status: AuthStatus;
   user: SessionUser | null;
+  /**
+   * The Firebase client user on this device (undefined while loading). Unlike `user` it doesn't
+   * need the server session, so it still identifies the person offline. Decides whose local
+   * progress is shown (lib/workspace.ts) — never used to authorise anything.
+   */
+  firebaseUid: string | null | undefined;
   signIn: (email: string, password: string) => Promise<SessionUser>;
   signUp: (email: string, password: string) => Promise<SessionUser>;
   signOut: (opts?: { everywhere?: boolean }) => Promise<void>;
@@ -156,6 +164,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const load = React.useCallback(() => loadAuth(config, authEmulatorHost), [config, authEmulatorHost]);
   const [status, setStatus] = React.useState<AuthStatus>(configured ? "loading" : "unavailable");
   const [user, setUser] = React.useState<SessionUser | null>(null);
+  const [firebaseUid, setFirebaseUid] = React.useState<string | null | undefined>(undefined);
   const [verificationState, setVerificationState] = React.useState<VerificationState>(INITIAL_VERIFICATION_STATE);
   const stateRef = React.useRef<{ uid: string | null; state: VerificationState }>({ uid: null, state: INITIAL_VERIFICATION_STATE });
   const { details: diagnostics } = useFirebaseSetup();
@@ -293,23 +302,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (cancelled) return;
         // Returning from a Google redirect sign-in: surface conflicts (link required) and errors.
         try {
-          await getRedirectResult(auth);
+          const redirect = await getRedirectResult(auth);
+          if (redirect) {
+            const { getAdditionalUserInfo } = await import("firebase/auth");
+            if (getAdditionalUserInfo(redirect)?.isNewUser) markNewAccount(redirect.user.uid);
+          }
         } catch (err) {
           const outcome = await googleFailure(err);
           if (outcome.status === "error") console.warn(`[auth] Google redirect sign-in failed (${outcome.code})`);
         }
+        // Auth changes can overlap (sign-out then sign-in in quick succession): only the newest
+        // callback may apply its result, so a slow check for the previous user can never
+        // re-apply that user after someone else signed in.
+        let latest = 0;
         unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+          const seq = ++latest;
+          setFirebaseUid(fbUser?.uid ?? null);
+          const stale = () => cancelled || seq !== latest;
           try {
             const server = await fetchSession().catch(() => null);
-            if (cancelled) return;
+            if (stale()) return;
             if (fbUser) {
               if (server && server.uid === fbUser.uid) {
                 applySignedIn({ ...server, emailVerified: fbUser.emailVerified, displayName: fbUser.displayName });
                 return;
               }
               try {
-                applySignedIn(await createServerSession(fbUser));
+                const created = await createServerSession(fbUser);
+                if (stale()) return;
+                applySignedIn(created);
               } catch (err) {
+                if (stale()) return;
                 // Old sign-in (session expired after two weeks), revoked, or the server can't
                 // create sessions (setup problem): sign the browser out too, so both sides agree.
                 if (err instanceof AccountError && FINAL_SESSION_ERRORS.has(err.code)) {
@@ -321,10 +344,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               }
             } else {
               if (server) await deleteServerSession().catch(() => {});
+              if (stale()) return;
               applySignedOut();
             }
           } catch {
-            if (!cancelled) applySignedOut();
+            if (!stale()) applySignedOut();
           }
         });
       } catch {
@@ -342,6 +366,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       status,
       user,
+      firebaseUid,
       async signIn(email, password) {
         const auth = await load();
         const { signInWithEmailAndPassword } = await import("firebase/auth");
@@ -354,6 +379,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const auth = await load();
         const { createUserWithEmailAndPassword } = await import("firebase/auth");
         const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
+        markNewAccount(cred.user.uid); // created here: this device's signed-out progress is theirs
         // A failed verification email doesn't block the account, but the outcome is kept and
         // shown on /account (no silent failure); it can be resent from there.
         await sendVerificationEmail(cred.user);
@@ -418,7 +444,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const auth = await load();
           const { signInWithPopup, getAdditionalUserInfo } = await import("firebase/auth");
           const cred = await signInWithPopup(auth, await createGoogleProvider());
-          return await finishGoogleSignIn(auth, cred.user, getAdditionalUserInfo(cred)?.isNewUser ?? false);
+          const isNewUser = getAdditionalUserInfo(cred)?.isNewUser ?? false;
+          if (isNewUser) markNewAccount(cred.user.uid);
+          return await finishGoogleSignIn(auth, cred.user, isNewUser);
         } catch (err) {
           return googleFailure(err);
         }
@@ -513,6 +541,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [
       status,
       user,
+      firebaseUid,
       verificationState,
       pendingGoogleLink,
       load,

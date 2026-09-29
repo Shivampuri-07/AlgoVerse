@@ -44,7 +44,7 @@ export function AccountView({
   initialProfile: AccountProfile;
   profileLoadFailed: boolean;
 }) {
-  const { status, signOut, checkVerification, sendPasswordReset, setDisplayName, linkGoogle } = useAuth();
+  const { status, user, signOut, checkVerification, sendPasswordReset, setDisplayName, linkGoogle } = useAuth();
   const { config } = useFirebaseSetup();
   const { entitlements } = useSyncSetup();
   const router = useRouter();
@@ -116,6 +116,13 @@ export function AccountView({
     if (status === "signed-out") router.replace("/");
   }, [status, router]);
 
+  // The signed-in account changed while this page was open (e.g. another tab switched accounts):
+  // never show the previous account's details — hide them and ask the server for the current one.
+  const otherAccount = status === "signed-in" && user !== null && user.uid !== profile.uid;
+  React.useEffect(() => {
+    if (otherAccount) router.refresh();
+  }, [otherAccount, router]);
+
   async function saveName(e: React.FormEvent) {
     e.preventDefault();
     const clean = normalizeDisplayName(name);
@@ -167,7 +174,11 @@ export function AccountView({
     setSigningOut(true);
     try {
       await signOut({ everywhere });
-      toast.success(everywhere ? "Signed out on all devices." : "Signed out. Your progress on this device is unchanged.");
+      toast.success(
+        everywhere
+          ? "Signed out on all devices. Your progress stays saved for when you log back in."
+          : "Signed out. Your progress stays saved on this device for when you log back in."
+      );
       router.replace("/");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't sign out. Try again.");
@@ -176,6 +187,14 @@ export function AccountView({
   }
 
   const memberSince = formatDate(profile.createdAt);
+
+  if (otherAccount) {
+    return (
+      <div className="flex items-center gap-2 py-10 text-sm text-muted-foreground" role="status" data-testid="account-switching">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading your account…
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl space-y-6 pb-10">
@@ -272,8 +291,8 @@ export function AccountView({
         <CardContent className="space-y-3 text-sm text-muted-foreground">
           <p>{PLAN_SUMMARY}</p>
           <p>
-            Your progress, bookmarks and notes are saved on this device, exactly as before. Signing in or out
-            doesn&apos;t change them.
+            Your progress, bookmarks and notes are saved on this device for this account. Other accounts on this
+            device (and signed-out use) keep their own — signing out never deletes yours.
           </p>
           <div className="flex flex-wrap gap-2">
             {entitlements?.plan !== "pro" && <UpgradeButton size="sm" />}

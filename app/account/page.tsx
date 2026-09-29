@@ -31,6 +31,7 @@ export default async function AccountPage() {
 
   return (
     <AccountView
+      key={profile?.uid ?? user.uid} // a different account never inherits the previous one's page state
       initialProfile={
         profile ?? {
           uid: user.uid,

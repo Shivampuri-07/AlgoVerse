@@ -56,7 +56,7 @@ export function AccountMenu() {
   async function handleSignOut() {
     try {
       await signOut();
-      toast.success("Logged out. Your progress on this device is unchanged.");
+      toast.success("Logged out. Your progress stays saved on this device for when you log back in.");
       if (pathname.startsWith("/account")) router.replace("/");
     } catch {
       toast.error("Couldn't log out. Check your connection and try again.");

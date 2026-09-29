@@ -12,6 +12,22 @@ import type { StateStorage } from "zustand/middleware";
  * else in the app needs to change, since every component reads state
  * through the `useAppStore` hook, never through localStorage directly.
  */
+let writesPaused = false;
+
+/**
+ * Runs `fn` without persisting any store change it makes. Used when switching the device's
+ * active account (lib/workspace.ts): the in-memory store is cleared before the next owner's
+ * data is loaded, and that momentary empty state must never overwrite anyone's saved data.
+ */
+export function withWritesPaused<T>(fn: () => T): T {
+  writesPaused = true;
+  try {
+    return fn();
+  } finally {
+    writesPaused = false;
+  }
+}
+
 export const localStorageAdapter: StateStorage = {
   getItem: (name) => {
     if (typeof window === "undefined") return null;
@@ -23,7 +39,7 @@ export const localStorageAdapter: StateStorage = {
     }
   },
   setItem: (name, value) => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || writesPaused) return;
     try {
       window.localStorage.setItem(name, value);
     } catch {
@@ -31,7 +47,7 @@ export const localStorageAdapter: StateStorage = {
     }
   },
   removeItem: (name) => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || writesPaused) return;
     try {
       window.localStorage.removeItem(name);
     } catch {

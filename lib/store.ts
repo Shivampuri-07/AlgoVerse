@@ -11,7 +11,7 @@ import {
 } from "@/lib/migrate-progress";
 import type { CompletedMap, LegacyProgress, ProgressExport, StreakState } from "@/lib/types";
 
-const STORAGE_KEY = "dsa-roadmap-storage";
+export const STORAGE_KEY = "dsa-roadmap-storage";
 /**
  * Bump when the meaning of stored ids changes.
  *   0/1 = original 152-problem starter dataset

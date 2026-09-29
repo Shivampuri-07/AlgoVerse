@@ -197,7 +197,7 @@ let suppress = false;
 type Identity = { state: "loading" } | { state: "signed-out" } | { state: "signed-in"; uid: string };
 let identity: Identity = { state: "loading" };
 let journal: { owner: string; prev: SyncSnapshot; unsubscribe: () => void } | null = null;
-const HELD_KEY = "algoverse-sync-held";
+export const HELD_KEY = "algoverse-sync-held";
 
 /** Edits made while sign-in is still resolving: stored (a page change mustn't lose them), sent only once confirmed. */
 function readHeld(owner: string): SyncOp[] {
@@ -257,7 +257,8 @@ export function ensureJournal() {
   journal = j;
 }
 
-function stopJournal() {
+/** Detach the journal (the device's active account is about to change: lib/workspace.ts). */
+export function stopJournal() {
   journal?.unsubscribe();
   journal = null;
 }
@@ -350,9 +351,25 @@ function applyChanges(uid: string, changes: SyncChanges, mode: "merge" | "replac
   writeMeta(meta);
 }
 
+/**
+ * Bumped whenever syncing stops or the device's account changes. Every sync run captures it and
+ * re-checks after each network wait: a response that arrives for a previous account (or after
+ * sign-out) is dropped — it can never write that account's data into the current account's store,
+ * outbox or meta.
+ */
+let generation = 0;
+class StaleSyncError extends Error {}
+function assertCurrent(gen: number) {
+  if (gen !== generation) throw new StaleSyncError("stale");
+}
+
 class SyncHttpError extends Error {
-  constructor(readonly status: number, readonly code: string) {
+  readonly status: number;
+  readonly code: string;
+  constructor(status: number, code: string) {
     super(code);
+    this.status = status;
+    this.code = code;
   }
 }
 
@@ -376,13 +393,15 @@ async function request<T>(method: "GET" | "POST", url: string, body?: unknown): 
   return (await res.json()) as T;
 }
 
-async function pushNow(uid: string) {
+async function pushNow(uid: string, gen: number) {
   for (;;) {
+    assertCurrent(gen);
     const ops = readOutbox(uid);
     if (!ops.length) return;
     // Within Vercel's 4.5 MB request limit however long the notes are.
     const batch = takeBatch(ops, SYNC_LIMITS.maxOpsPerRequest, SYNC_LIMITS.maxRequestBytes);
     const result = await request<PushResponse>("POST", "/api/sync", { ops: batch });
+    assertCurrent(gen); // the account may have changed while the request was in flight
     // Remove exactly what was sent; anything edited again meanwhile stays queued.
     const sent = new Map(batch.map((o) => [opKey(o), JSON.stringify(o)]));
     const remaining = readOutbox(uid).filter((o) => sent.get(opKey(o)) !== JSON.stringify(o));
@@ -407,12 +426,13 @@ async function pushNow(uid: string) {
  * Fetches every page of a pull (notes are paged to stay under the response size limit).
  * `onPage` runs per page; the cursor to keep is the FIRST page's.
  */
-async function pullPages(since: number, onPage: (page: PullResponse) => void): Promise<number> {
+async function pullPages(since: number, gen: number, onPage: (page: PullResponse) => void): Promise<number> {
   let after: string | null = null;
   let cursor = since;
   for (let page = 0; page < 1000; page++) {
     const url: string = `/api/sync?since=${since}${after ? `&notesAfter=${encodeURIComponent(after)}` : ""}`;
     const res: PullResponse = await request<PullResponse>("GET", url);
+    assertCurrent(gen);
     if (page === 0) cursor = res.cursor;
     onPage(res);
     if (!res.more || !res.notesAfter) return cursor;
@@ -421,10 +441,11 @@ async function pullPages(since: number, onPage: (page: PullResponse) => void): P
   return cursor;
 }
 
-async function pullNow(uid: string) {
+async function pullNow(uid: string, gen: number) {
+  assertCurrent(gen);
   const meta = readMeta();
   let sawPreferences = false;
-  const cursor = await pullPages(meta.cursor, (page) => {
+  const cursor = await pullPages(meta.cursor, gen, (page) => {
     if (page.meta?.preferences) sawPreferences = true;
     applyChanges(uid, page);
   });
@@ -440,18 +461,20 @@ async function pullNow(uid: string) {
 export function syncNow(): Promise<void> {
   const uid = running?.uid;
   if (!uid) return Promise.resolve();
+  const gen = generation;
   chain = chain.then(async () => {
-    if (!running || running.uid !== uid) return;
+    if (!running || running.uid !== uid || gen !== generation) return;
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       useSyncStore.setState({ status: "offline", message: null });
       return;
     }
     useSyncStore.setState({ status: "syncing", message: null });
     try {
-      await pushNow(uid);
-      await pullNow(uid);
+      await pushNow(uid, gen);
+      await pullNow(uid, gen);
       useSyncStore.setState({ status: "synced", lastSyncedAt: Date.now(), message: null });
     } catch (err) {
+      if (err instanceof StaleSyncError) return; // superseded: this run's results are discarded
       if (err instanceof SyncHttpError) {
         if (err.status === 401 || err.code === "not_entitled") {
           stopSync();
@@ -570,6 +593,7 @@ export function startSync(uid: string) {
 }
 
 export function stopSync() {
+  generation++; // anything still in flight for the previous run is now stale
   clearTimeout(pushTimer);
   if (!running) return;
   running.cleanup();
@@ -619,14 +643,17 @@ export function backupLocalData(reason: string): string {
 export async function switchToCloudAndStart(uid: string): Promise<string> {
   const backupKey = backupLocalData(`switch to account ${uid.slice(0, 6)}…`);
   stopSync();
+  const gen = generation;
   // Collect ALL pages first; the device is only replaced once the whole account has arrived.
   const cloud: SyncChanges = { progress: [], bookmarks: [], notes: [], meta: null };
-  const cursor = await pullPages(0, (page) => {
+  const cursor = await pullPages(0, gen, (page) => {
     cloud.progress.push(...page.progress);
     cloud.bookmarks.push(...page.bookmarks);
     cloud.notes.push(...page.notes);
     if (page.meta) cloud.meta = page.meta;
   });
+  // Signed out or switched account meanwhile: replace nothing.
+  if (gen !== generation || identity.state !== "signed-in" || identity.uid !== uid) throw new StaleSyncError("stale");
   writeMeta(freshMeta({ ownerUserId: uid, cursor, prefs: readMeta().prefs }));
   try {
     window.localStorage.removeItem(SYNC_OUTBOX_KEY); // the other account's unsent changes are in the backup
