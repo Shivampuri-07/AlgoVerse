@@ -628,6 +628,93 @@ async function waitGoogleReady(page) {
   });
 }
 
+test("Preview per-deployment address: 'Continue with Google' moves to the stable branch address (same page and next), no popup", async () => {
+  const PORT = 3125;
+  startServer(PORT, ".next-e2e", { ...process.env, FIREBASE_PROJECT_ID: "demo-algoverse", VERCEL_ENV: "preview", VERCEL_BRANCH_URL: "stable-preview.example.test" });
+  await waitFor(`http://localhost:${PORT}/login`);
+  const { context, page } = await newPage(`http://localhost:${PORT}`);
+  let arrived = null;
+  await context.route("https://stable-preview.example.test/**", (route) => {
+    arrived = route.request().url();
+    return route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>stable</body></html>" });
+  });
+  let popups = 0;
+  page.on("popup", () => popups++);
+  await page.goto("/login?next=%2Fproblems%2F6");
+  await waitGoogleReady(page);
+  await page.getByTestId("google-stable-note").waitFor();
+  await googleButton(page).click();
+  await page.waitForURL("https://stable-preview.example.test/**");
+  assert.equal(arrived, "https://stable-preview.example.test/login?next=%2Fproblems%2F6", "same page and next on the stable address");
+  assert.equal(popups, 0, "no Google window from the per-deployment address");
+  await context.close();
+  // On the stable address itself (and on Production, which has no stable host) the normal flow is unchanged:
+  // covered by the Google tests below, which run on a server without VERCEL_BRANCH_URL.
+});
+
+test("Preview (separate Firebase project): a Google-only account's password login fails with a clear Preview note; real email/password accounts log in, persist and switch as before", async () => {
+  const PREVIEW = "http://localhost:3125"; // started by the previous test with VERCEL_ENV=preview
+  await waitFor(`${PREVIEW}/login`);
+  // A Google-only account (what the owner's account is in algoverse-preview).
+  const gEmail = `g-only-${Date.now()}@example.com`;
+  const idp = await fetch(`${AUTH}/identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=demo-api-key`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requestUri: "http://localhost", returnSecureToken: true, postBody: `id_token=${encodeURIComponent(JSON.stringify({ sub: `g-${Date.now()}`, email: gEmail, email_verified: true }))}&providerId=google.com` }),
+  });
+  assert.equal(idp.status, 200);
+  // A normal email/password account.
+  const pEmail = `pw-${Date.now()}@example.com`;
+  await fetch(`${AUTH}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=demo-api-key`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: pEmail, password: "letters123", returnSecureToken: true }) });
+
+  const { context, page } = await newPage(PREVIEW);
+  const tryLogin = async (email, password) => {
+    await page.goto("/login");
+    await page.waitForFunction(() => !document.querySelector('button[type="submit"]')?.disabled);
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password", { exact: true }).fill(password);
+    await page.getByRole("button", { name: "Log in" }).last().click();
+  };
+  await tryLogin(gEmail, "letters123");
+  const err = page.getByText("Email or password is incorrect.");
+  await err.waitFor();
+  const text = await err.innerText();
+  assert.match(text, /This Preview uses its own accounts, separate from the live site\. If your password was set on the live site, it won't work here\. Continue with Google, or sign in with Google and use Account → Set a password\./, "Preview note");
+  assert.equal(await page.evaluate(async () => (await fetch("/api/auth/session")).json().then((j) => j.user ?? null)), null, "no session");
+
+  // Wrong password for a real account: same generic message (no enumeration), no session.
+  await tryLogin(pEmail, "wrongpass1");
+  await page.getByText("Email or password is incorrect.").waitFor();
+  // Right password: session, Account shows this account, survives refresh.
+  await tryLogin(pEmail, "letters123");
+  await page.waitForURL("**/account**");
+  await page.getByText(pEmail).first().waitFor();
+  assert.ok((await context.cookies()).some((c) => c.name === "algoverse_session" && c.value), "server session cookie");
+  await page.reload();
+  await page.getByText(pEmail).first().waitFor();
+  // Log out, log back in.
+  await page.getByRole("button", { name: /Account menu/ }).click();
+  await page.getByRole("menuitem", { name: "Log out" }).click();
+  await page.waitForURL(`${PREVIEW}/`);
+  assert.ok(!(await context.cookies()).some((c) => c.name === "algoverse_session" && c.value), "cookie cleared");
+  await tryLogin(pEmail, "letters123");
+  await page.waitForURL("**/account**");
+  await page.getByText(pEmail).first().waitFor();
+  await context.close();
+
+  // Not a Preview: the same failure shows only the generic message.
+  const other = await newPage(CONFIGURED);
+  await other.page.goto("/login");
+  await other.page.waitForFunction(() => !document.querySelector('button[type="submit"]')?.disabled);
+  await other.page.getByLabel("Email").fill(gEmail);
+  await other.page.getByLabel("Password", { exact: true }).fill("letters123");
+  await other.page.getByRole("button", { name: "Log in" }).last().click();
+  const e2 = other.page.getByText("Email or password is incorrect.");
+  await e2.waitFor();
+  assert.doesNotMatch(await e2.innerText(), /Preview/, "no Preview note outside Previews");
+  await other.context.close();
+});
+
 test("Google: new user signs up with the popup; verified state comes from Firebase; secure session; local progress kept", async () => {
   const email = `g-new-${Date.now()}@example.com`;
   const { context, page } = await newPage(CONFIGURED);
@@ -656,6 +743,45 @@ test("Google: new user signs up with the popup; verified state comes from Fireba
   const cookie = (await context.cookies()).find((c) => c.name === "algoverse_session");
   assert.ok(cookie?.httpOnly);
   assert.equal(await readProgress(page), before, "local progress untouched");
+  await context.close();
+});
+
+test("Google-only account → Account → Set a password: the password is added to the same account (Google kept), then email/password login works", async () => {
+  const email = `g-setpw-${Date.now()}@example.com`;
+  const { context, page } = await newPage(CONFIGURED);
+  await page.goto("/signup");
+  await waitGoogleReady(page);
+  await googlePopup(page, googleButton(page), email);
+  await page.waitForURL("**/account**");
+  const before = await profileOf(page);
+  assert.deepEqual(before.providers, ["google.com"]);
+  await page.getByRole("button", { name: "Set a password" }).first().click();
+  const dialog = page.getByTestId("set-password-dialog");
+  await dialog.waitFor();
+  // Same rules as sign-up.
+  await dialog.getByLabel("Password", { exact: true }).fill("short");
+  await dialog.getByLabel("Confirm password").fill("short");
+  await dialog.getByRole("button", { name: "Set password" }).click();
+  await dialog.getByText("Use at least 8 characters.").waitFor();
+  await dialog.getByLabel("Password", { exact: true }).fill("letters123");
+  await dialog.getByLabel("Confirm password").fill("letters124");
+  await dialog.getByRole("button", { name: "Set password" }).click();
+  await dialog.getByText("Passwords don't match.").waitFor();
+  await dialog.getByLabel("Confirm password").fill("letters123");
+  await dialog.getByRole("button", { name: "Set password" }).click();
+  await dialog.waitFor({ state: "detached" });
+  const after = await profileOf(page);
+  assert.equal(after.uid, before.uid, "same account");
+  assert.deepEqual([...after.providers].sort(), ["google.com", "password"], "password added, Google kept");
+  await page.getByRole("button", { name: "Change password" }).waitFor();
+  // Log out, log in with the new password: same account, both methods still there.
+  await page.getByRole("button", { name: /Account menu/ }).click();
+  await page.getByRole("menuitem", { name: "Log out" }).click();
+  await page.waitForURL(`${CONFIGURED}/`);
+  await logInInUi(page, email);
+  const again = await profileOf(page);
+  assert.equal(again.uid, before.uid);
+  assert.deepEqual([...again.providers].sort(), ["google.com", "password"]);
   await context.close();
 });
 

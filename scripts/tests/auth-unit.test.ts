@@ -591,3 +591,29 @@ test("stable branch address comes from VERCEL_BRANCH_URL on Preview, never on Pr
   })();
   await withEnv({ VERCEL_ENV: "preview", VERCEL_BRANCH_URL: undefined }, () => assert.equal(deployment.stableHost(), null))();
 });
+
+test("login: Firebase's generic credential errors are recognised; the Preview note explains separate accounts", async () => {
+  const c = await import("@/lib/auth/client");
+  for (const code of ["auth/invalid-credential", "auth/wrong-password", "auth/user-not-found", "auth/invalid-login-credentials"]) assert.equal(c.isCredentialError({ code }), true, code);
+  for (const code of ["auth/too-many-requests", "auth/network-request-failed", "auth/operation-not-allowed", undefined]) assert.equal(c.isCredentialError({ code }), false, String(code));
+  assert.equal(c.firebaseErrorMessage({ code: "auth/invalid-credential" }), "Email or password is incorrect.", "message unchanged (no account enumeration)");
+  assert.equal(
+    c.previewAccountsNote(),
+    "This Preview uses its own accounts, separate from the live site. If your password was set on the live site, it won't work here. Continue with Google, or sign in with Google and use Account → Set a password."
+  );
+  assert.doesNotMatch(c.previewAccountsNote(), /firebase|project|algoverse-/i, "no Firebase jargon or project names");
+  assert.match(c.firebaseErrorMessage({ code: "auth/provider-already-linked" }), /already has a password/);
+});
+
+test("stable Preview address: same path and query, host always the stable host (no open redirect)", async () => {
+  const { stableAddressFor } = await import("@/lib/auth/google");
+  const S = "algo-verse-git-feat-accounts-firebase-algo-verse1.vercel.app";
+  assert.equal(stableAddressFor(S, "https://algo-verse-gkyhw9ka2-algo-verse1.vercel.app/login?next=%2Fproblems%2F6"), `https://${S}/login?next=%2Fproblems%2F6`);
+  assert.equal(stableAddressFor(S, `https://${S}/login`), null, "already on the stable address");
+  assert.equal(stableAddressFor(null, "https://x.vercel.app/login"), null, "no stable host (e.g. Production)");
+  for (const href of ["https://a.vercel.app//evil.example/login", "https://a.vercel.app/%2F%2Fevil.example", "https://a.vercel.app/\\evil.example/x", "https://a.vercel.app/login?next=https://evil.example"]) {
+    const out = stableAddressFor(S, href);
+    assert.ok(out && new URL(out).host === S, `${href} → ${out}`);
+  }
+  for (const bad of ["evil.example/path", "evil.example:8080", "https://evil.example", "localhost", "", "a..b"]) assert.equal(stableAddressFor(bad, "https://a.vercel.app/login"), null, `rejects stable host ${JSON.stringify(bad)}`);
+});

@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useFirebaseSetup } from "@/components/providers/firebase-config-provider";
+import { stableAddressFor } from "@/lib/auth/google";
 import { FormMessage } from "@/components/account/auth-card";
 import { Button } from "@/components/ui/button";
 
@@ -52,14 +53,20 @@ export function GoogleSignIn({ next, disabled, onLinkRequired, showExistingAccou
   const [domainBlocked, setDomainBlocked] = React.useState(false);
   const { deployment } = useFirebaseSetup();
   // On a per-deployment Vercel address, the same page on this Preview's stable (authorised) address.
-  const stableUrl = React.useMemo(() => {
-    const host = deployment?.stableHost;
-    if (!host || typeof window === "undefined" || window.location.hostname === host) return null;
-    return `https://${host}${window.location.pathname}${window.location.search}`;
-  }, [deployment?.stableHost]);
+  const stableUrl = React.useMemo(
+    () => (typeof window === "undefined" ? null : stableAddressFor(deployment?.stableHost, window.location.href)),
+    [deployment?.stableHost]
+  );
 
   async function run(redirect: boolean) {
     if (busy) return;
+    // A Vercel per-deployment address (new on every push) isn't in Firebase's Authorized domains;
+    // the Preview's stable branch address is. Continue there (same page and ?next) instead of failing.
+    if (stableUrl) {
+      setBusy(true);
+      window.location.assign(stableUrl);
+      return;
+    }
     setBusy(true);
     setError(null);
     const outcome = redirect ? await signInWithGoogleRedirect() : await signInWithGoogle();
@@ -105,6 +112,11 @@ export function GoogleSignIn({ next, disabled, onLinkRequired, showExistingAccou
           <span className="font-medium text-foreground">Link Google account</span> on your Account page — that keeps
           your password. (If an unverified password account signs in with Google directly, Firebase keeps the
           account and its data but removes the old password, for security.)
+        </p>
+      )}
+      {stableUrl && !domainBlocked && (
+        <p className="text-xs text-muted-foreground" data-testid="google-stable-note">
+          On this Preview deployment, Google sign-in continues on the Preview&apos;s stable address.
         </p>
       )}
       {domainBlocked && stableUrl && (

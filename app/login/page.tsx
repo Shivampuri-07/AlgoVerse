@@ -13,7 +13,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { firebaseErrorMessage } from "@/lib/auth/client";
+import { firebaseErrorMessage, isCredentialError, previewAccountsNote } from "@/lib/auth/client";
+import { useFirebaseSetup } from "@/components/providers/firebase-config-provider";
 import { isValidEmail, safeNextPath } from "@/lib/auth/shared";
 
 interface Errors {
@@ -31,6 +32,8 @@ function validate(email: string, password: string): Errors {
 
 function LoginForm() {
   const { status, signIn, pendingGoogleLink, completePendingGoogleLink, cancelPendingGoogleLink } = useAuth();
+  const { deployment } = useFirebaseSetup();
+  const onPreview = deployment?.env === "preview";
   const setup = useAccountSetup();
   const router = useRouter();
   const params = useSearchParams();
@@ -75,7 +78,8 @@ function LoginForm() {
       }
       router.replace(next);
     } catch (err) {
-      setFormError(firebaseErrorMessage(err));
+      const message = firebaseErrorMessage(err);
+      setFormError(onPreview && isCredentialError(err) ? `${message} ${previewAccountsNote()}` : message);
       setBusy(false);
     }
   }

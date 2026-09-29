@@ -34,9 +34,27 @@ export function loadAuth(config: FirebasePublicConfig | null, emulatorHost: stri
 }
 
 export class AccountError extends Error {
-  constructor(message: string, readonly code: string) {
+  readonly code: string;
+  constructor(message: string, code: string) {
     super(message);
+    this.code = code;
   }
+}
+
+const CREDENTIAL_CODES = new Set(["auth/invalid-credential", "auth/wrong-password", "auth/user-not-found", "auth/invalid-login-credentials"]);
+
+/** Firebase's generic "email or password didn't match" (it never says which, by design). */
+export function isCredentialError(err: unknown): boolean {
+  return CREDENTIAL_CODES.has(String((err as { code?: unknown } | null)?.code ?? ""));
+}
+
+/**
+ * Preview deployments use their own Firebase project, i.e. a separate user database: an account
+ * made on the live site doesn't exist there with its password. Shown only on Preview, after a
+ * credential error — never on Production, and it doesn't reveal whether an account exists.
+ */
+export function previewAccountsNote(): string {
+  return "This Preview uses its own accounts, separate from the live site. If your password was set on the live site, it won't work here. Continue with Google, or sign in with Google and use Account → Set a password.";
 }
 
 /** Friendly copy for Firebase Auth error codes. Unknown codes get a generic message. */
@@ -62,6 +80,8 @@ export function firebaseErrorMessage(err: unknown): string {
       return "Couldn't reach the sign-in service. Check your connection and try again.";
     case "auth/user-disabled":
       return "This account has been disabled. Contact support if you think this is a mistake.";
+    case "auth/provider-already-linked":
+      return "This account already has a password. Use Change password instead.";
     case "auth/requires-recent-login":
       return "For your security, please sign in again first.";
     case "auth/operation-not-allowed":

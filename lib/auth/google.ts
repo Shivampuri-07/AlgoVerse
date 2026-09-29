@@ -62,6 +62,27 @@ export function isAuthorizedHost(host: string, domains: readonly string[], proto
   return domains.some((d) => hostMatchesAuthorizedDomain(host, d, protocol));
 }
 
+/**
+ * The same page on this Preview's stable branch address (Vercel's VERCEL_BRANCH_URL), for use from
+ * a per-deployment address. Only the path and query of the current page are carried over; the
+ * host is always the server-provided stable host, so this can never send anyone to another site.
+ * Null when there is no (valid) stable host or we're already on it.
+ */
+export function stableAddressFor(stableHost: string | null | undefined, currentHref: string): string | null {
+  if (!stableHost || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(stableHost)) return null;
+  let current: URL;
+  try {
+    current = new URL(currentHref);
+  } catch {
+    return null;
+  }
+  if (current.hostname.toLowerCase() === stableHost.toLowerCase()) return null;
+  const target = new URL(`https://${stableHost}/`);
+  target.pathname = current.pathname.replace(/^\/+/, "/");
+  target.search = current.search;
+  return target.host === stableHost.toLowerCase() ? target.toString() : null;
+}
+
 /** What the message for auth/unauthorized-domain may mention (all public, non-secret). */
 export interface GoogleErrorContext {
   /** The page's hostname (window.location.hostname). */

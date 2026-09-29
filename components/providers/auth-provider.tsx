@@ -59,6 +59,12 @@ interface AuthContextValue {
   signIn: (email: string, password: string) => Promise<SessionUser>;
   signUp: (email: string, password: string) => Promise<SessionUser>;
   signOut: (opts?: { everywhere?: boolean }) => Promise<void>;
+  /**
+   * Adds a password to the signed-in account that has none (e.g. created with Google), with
+   * Firebase's updatePassword on the CURRENT user: same account and UID, email unchanged, Google
+   * stays linked, nothing is created. Accounts that already have a password use sendPasswordReset.
+   */
+  setPassword: (password: string) => Promise<void>;
   sendPasswordReset: (email: string) => Promise<void>;
   /**
    * Verification-email state for the signed-in user, persisted per account: the fixed pause
@@ -409,6 +415,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         pendingLinkRef.current = null;
         setPendingGoogleLink(null);
         applySignedOut();
+      },
+      async setPassword(password) {
+        const auth = await load();
+        const current = auth.currentUser;
+        if (!current || !current.email) throw new AccountError("Please log in again first.", "app/no-current-user");
+        if (current.providerData.some((p) => p.providerId === "password")) {
+          throw new AccountError("This account already has a password. Use Change password instead.", "auth/provider-already-linked");
+        }
+        const { updatePassword } = await import("firebase/auth");
+        await updatePassword(current, password);
+        await current.reload().catch(() => {});
+        // Firebase revokes existing sessions when a password changes (the server checks revocation),
+        // so issue a new server session from the fresh ID token. If that fails, sign out fully
+        // rather than looking signed in with a dead session.
+        const session = await sessionOrSignOut(auth, current, "Your password was set, but you need to log in again:");
+        applySignedIn({ ...session, emailVerified: current.emailVerified, displayName: current.displayName ?? session.displayName });
       },
       async sendPasswordReset(email) {
         const auth = await load();

@@ -25,6 +25,7 @@ import { firebaseErrorMessage, patchProfile } from "@/lib/auth/client";
 import { DISPLAY_NAME_MAX_LENGTH, normalizeDisplayName, type AccountProfile } from "@/lib/auth/shared";
 import { GOOGLE_PROVIDER_ID, PASSWORD_PROVIDER_ID } from "@/lib/auth/google";
 import { EmailVerificationCard } from "@/components/account/email-verification";
+import { SetPasswordDialog } from "@/components/account/set-password-dialog";
 import { GoogleMark } from "@/components/account/google-sign-in";
 import { SyncCard } from "@/components/sync/sync-status";
 import { useSyncSetup } from "@/components/sync/sync-provider";
@@ -54,6 +55,7 @@ export function AccountView({
   const [savingName, setSavingName] = React.useState(false);
   const [linkingGoogle, setLinkingGoogle] = React.useState(false);
   const [signOutAllOpen, setSignOutAllOpen] = React.useState(false);
+  const [setPasswordOpen, setSetPasswordOpen] = React.useState(false);
   const [signingOut, setSigningOut] = React.useState(false);
 
   // Trusted state only: the server's fresh Firebase Admin lookup (never a URL parameter or the UI).
@@ -162,6 +164,11 @@ export function AccountView({
 
   async function onChangePassword() {
     if (!profile.email) return;
+    // No password yet (e.g. created with Google): add one to THIS account — Google stays linked.
+    if (!hasPassword && profile.providers.length > 0) {
+      setSetPasswordOpen(true);
+      return;
+    }
     try {
       await sendPasswordReset(profile.email);
       toast.success(`We sent a password-change link to ${profile.email}.`);
@@ -363,6 +370,12 @@ export function AccountView({
         </CardHeader>
       </Card>
 
+      <SetPasswordDialog
+        open={setPasswordOpen}
+        onOpenChange={setSetPasswordOpen}
+        email={profile.email}
+        onDone={() => void reloadProfile()}
+      />
       <Dialog open={signOutAllOpen} onOpenChange={setSignOutAllOpen}>
         <DialogContent>
           <DialogHeader>
