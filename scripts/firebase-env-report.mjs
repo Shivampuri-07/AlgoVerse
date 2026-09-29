@@ -36,6 +36,12 @@ export function firebaseEnvReport(env = process.env) {
     const blankButSet = typeof env[name] === "string" && !has(name) ? " (set but EMPTY)" : "";
     lines.push(`  ${has(name) ? "yes" : "NO "}  ${name}${blankButSet}`);
   }
+  // AI helper (non-secret config; the Gemini key itself is only reported as set/unset/placeholder).
+  const cap = Number(env.AI_GLOBAL_DAILY_LIMIT);
+  const capText = Number.isInteger(cap) && cap > 0 ? String(cap) : `500 (default${has("AI_GLOBAL_DAILY_LIMIT") ? "; AI_GLOBAL_DAILY_LIMIT is not a positive integer" : ""})`;
+  const key = (env.GEMINI_API_KEY ?? "").trim();
+  const keyState = !key ? "NOT set" : ["your_key_here", "your-key-here", "changeme", "AIza..."].includes(key) ? "placeholder (AI off)" : "set";
+  lines.push(`  AI: global daily cap ${capText} | GEMINI_API_KEY ${keyState} | GEMINI_KEY_SCOPE=preview: ${env.GEMINI_KEY_SCOPE?.trim() === "preview" ? "yes" : "no"}`);
   const odd = unexpectedFirebaseNames(env);
   if (odd.length) lines.push(`  Unrecognised Firebase-like variable names (check spelling/spaces): ${odd.join(", ")}`);
   const missingPublic = PUBLIC_FIREBASE_VARS.filter((n) => !has(n));

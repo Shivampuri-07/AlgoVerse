@@ -3,6 +3,7 @@ import { checkCredential } from "@/lib/firebase/admin-credential";
 import { loadAdminSdk } from "@/lib/firebase/admin-loader";
 import { allowSetupDetails } from "@/lib/firebase/deployment";
 import type { AccountSetupStatus } from "@/lib/auth/shared";
+import { STATUS_PROBE_PATH } from "@/lib/firebase/status-probe";
 
 /**
  * GET /api/auth/status — is account sign-in usable on this deployment?
@@ -24,7 +25,7 @@ async function databaseState(getDb: () => import("firebase-admin/firestore").Fir
   if (!db) return "unknown";
   let state: DatabaseState;
   try {
-    await db.doc("users/__status_probe__").get();
+    await db.doc(STATUS_PROBE_PATH).get();
     state = "ok";
   } catch (err) {
     const code = (err as { code?: unknown })?.code;

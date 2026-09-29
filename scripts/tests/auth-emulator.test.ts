@@ -550,3 +550,17 @@ test("ai: a Gemini failure before any answer is refunded in Firestore; the share
   assert.equal(busy.json.error.code, "busy");
   assert.equal(geminiCalls, 0);
 });
+
+// ---------------------------------------------------------------- status database probe
+
+test("status: the database probe reads a valid path and reports ok (the reserved users/__status_probe__ id was rejected)", async () => {
+  const statusRoute = await import("@/app/api/auth/status/route");
+  const { STATUS_PROBE_PATH } = await import("@/lib/firebase/status-probe");
+  const db = getAdminDb()!;
+  // The old id: Firestore rejects reserved __…__ ids with INVALID_ARGUMENT (code 3).
+  await assert.rejects(db.doc("users/__status_probe__").get(), (e: { code?: unknown }) => e.code === 3);
+  const body = await (await statusRoute.GET()).json();
+  assert.equal(body.server, "ok");
+  assert.equal(body.database, "ok", "the probe succeeds");
+  assert.equal((await db.doc(STATUS_PROBE_PATH).get()).exists, false, "read-only: nothing is created");
+});

@@ -617,3 +617,23 @@ test("stable Preview address: same path and query, host always the stable host (
   }
   for (const bad of ["evil.example/path", "evil.example:8080", "https://evil.example", "localhost", "", "a..b"]) assert.equal(stableAddressFor(bad, "https://a.vercel.app/login"), null, `rejects stable host ${JSON.stringify(bad)}`);
 });
+
+test("status probe: a valid, collision-safe Firestore path (the old users/__status_probe__ was reserved → INVALID_ARGUMENT)", async () => {
+  const { STATUS_PROBE_PATH, isValidDocumentPath } = await import("@/lib/firebase/status-probe");
+  assert.equal(isValidDocumentPath(STATUS_PROBE_PATH), true);
+  assert.ok(!STATUS_PROBE_PATH.startsWith("users/"), "never in the users collection (can't collide with a real account)");
+  assert.equal(isValidDocumentPath("users/__status_probe__"), false, "reserved __…__ id");
+  for (const bad of ["users", "a/b/c", "a//b", "__x__/doc", "a/.", "a/.."]) assert.equal(isValidDocumentPath(bad), false, bad);
+  const source = (await import("node:fs")).readFileSync("app/api/auth/status/route.ts", "utf8");
+  assert.ok(source.includes("STATUS_PROBE_PATH") && !source.includes("__status_probe__"), "the route uses the valid path");
+});
+
+test("build report: AI cap and key state are shown without printing the key", async () => {
+  const { firebaseEnvReport } = await import("../firebase-env-report.mjs");
+  const key = "AIzaSyTEST-FAKE-KEY-0123456789abcdefghi";
+  const preview = firebaseEnvReport({ VERCEL_ENV: "preview", AI_GLOBAL_DAILY_LIMIT: "30", GEMINI_API_KEY: key, GEMINI_KEY_SCOPE: "preview" });
+  assert.match(preview, /AI: global daily cap 30 \| GEMINI_API_KEY set \| GEMINI_KEY_SCOPE=preview: yes/);
+  assert.ok(!preview.includes(key), "key never printed");
+  assert.match(firebaseEnvReport({}), /global daily cap 500 \(default\) \| GEMINI_API_KEY NOT set \| GEMINI_KEY_SCOPE=preview: no/);
+  assert.match(firebaseEnvReport({ AI_GLOBAL_DAILY_LIMIT: "abc", GEMINI_API_KEY: "your_key_here" }), /500 \(default; AI_GLOBAL_DAILY_LIMIT is not a positive integer\) \| GEMINI_API_KEY placeholder \(AI off\)/);
+});
