@@ -13,15 +13,25 @@ const { PRICING } = await import("@/lib/plans");
 const DAY = 86_400_000;
 const NOW = 1_800_000_000_000;
 
-test("payments are off in the shipped code and can never switch on in Production or live mode", () => {
-  assert.equal(PRICING.paymentsEnabled, false, "no checkout until the owner approves");
-  assert.deepEqual(billingStatus({}), { enabled: false, reason: "not_approved" });
+test("billing gate: TEST mode only, never on Production, never live — whatever the configuration", () => {
+  assert.equal(PRICING.paymentsEnabled, false, "live payments not approved in code");
+  assert.deepEqual(billingStatus({}), { enabled: false, reason: "not_configured" });
   const test = { RAZORPAY_MODE: "test", RAZORPAY_KEY_ID: "rzp_test_abc", RAZORPAY_KEY_SECRET: "s", RAZORPAY_WEBHOOK_SECRET: "w", RAZORPAY_PLAN_ID: "plan_x" };
-  assert.deepEqual(billingStatus(test, true), { enabled: true, mode: "test" }, "test mode on Preview/local once approved");
-  assert.deepEqual(billingStatus({ ...test, VERCEL_ENV: "production" }, true), { enabled: false, reason: "production" });
-  assert.deepEqual(billingStatus({ ...test, RAZORPAY_MODE: "live", RAZORPAY_KEY_ID: "rzp_live_abc" }, true), { enabled: false, reason: "live_not_allowed" });
-  assert.deepEqual(billingStatus({ ...test, RAZORPAY_KEY_ID: "rzp_live_abc" }, true), { enabled: false, reason: "live_not_allowed" }, "a live key with test mode is still refused");
-  assert.deepEqual(billingStatus({ ...test, RAZORPAY_WEBHOOK_SECRET: "" }, true), { enabled: false, reason: "not_configured" });
+  assert.deepEqual(billingStatus(test), { enabled: true, mode: "test" }, "test mode on Preview/local");
+  assert.deepEqual(billingStatus({ ...test, VERCEL_ENV: "preview" }), { enabled: true, mode: "test" });
+  assert.deepEqual(billingStatus({ ...test, VERCEL_ENV: "production" }), { enabled: false, reason: "production" }, "never on Production");
+  assert.deepEqual(billingStatus({ ...test, RAZORPAY_MODE: "live", RAZORPAY_KEY_ID: "rzp_live_abc" }, true), { enabled: false, reason: "live_not_allowed" }, "live refused even if approved in code");
+  assert.deepEqual(billingStatus({ ...test, RAZORPAY_KEY_ID: "rzp_live_abc" }), { enabled: false, reason: "live_not_allowed" }, "a live key with test mode is refused");
+  assert.deepEqual(billingStatus({ ...test, RAZORPAY_WEBHOOK_SECRET: "" }), { enabled: false, reason: "not_configured" });
+  assert.deepEqual(billingStatus({ ...test, RAZORPAY_MODE: undefined }), { enabled: false, reason: "not_configured" });
+});
+
+test("Razorpay API base: only a LOCAL mock may override it, never on Production", async () => {
+  const { razorpaySettings } = await import("@/lib/billing/config");
+  assert.equal(razorpaySettings({}).apiBase, "https://api.razorpay.com");
+  assert.equal(razorpaySettings({ RAZORPAY_API_BASE: "http://127.0.0.1:3190/" }).apiBase, "http://127.0.0.1:3190");
+  assert.equal(razorpaySettings({ RAZORPAY_API_BASE: "https://evil.example" }).apiBase, "https://api.razorpay.com");
+  assert.equal(razorpaySettings({ RAZORPAY_API_BASE: "http://127.0.0.1:3190", VERCEL_ENV: "production" }).apiBase, "https://api.razorpay.com");
 });
 
 test("webhook signature: exact raw body + secret, constant-time, anything else rejected", () => {
@@ -92,4 +102,25 @@ test("a longer manual grant is never shortened by billing", () => {
   const shortManual = { plan: "pro" as const, expiresAt: NOW + DAY, source: "manual" };
   const active = sub.applySubscriptionEvent(record, event("active", NOW, NOW + 30 * DAY), shortManual, NOW);
   assert.ok(!active.ignored && active.entitlement.source === "razorpay" && active.entitlement.expiresAt! > shortManual.expiresAt);
+});
+
+test("Razorpay client: Basic auth with the key pair, correct endpoints, codes-only errors", async () => {
+  const { razorpayClient, RazorpayError } = await import("@/lib/billing/razorpay");
+  const calls: { url: string; method: string; auth: string | null; body: unknown }[] = [];
+  const fake = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({ url: String(url), method: String(init?.method), auth: new Headers(init?.headers).get("authorization"), body: init?.body ? JSON.parse(String(init.body)) : null });
+    if (String(url).endsWith("/cancel")) return new Response(JSON.stringify({ id: "sub_T1", status: "active" }), { status: 200 });
+    if (String(url).includes("sub_BAD")) return new Response(JSON.stringify({ error: { code: "BAD_REQUEST_ERROR", description: "secret-looking detail rzp_test_SECRET" } }), { status: 400 });
+    return new Response(JSON.stringify({ id: "sub_T1", status: "created" }), { status: 200 });
+  }) as typeof fetch;
+  const c = razorpayClient({ keyId: "rzp_test_ID", keySecret: "SECRET123", apiBase: "https://api.razorpay.com" }, fake);
+  assert.deepEqual(await c.createSubscription({ planId: "plan_1", uid: "u1" }), { id: "sub_T1", status: "created" });
+  assert.equal(calls[0].url, "https://api.razorpay.com/v1/subscriptions");
+  assert.equal(calls[0].auth, "Basic " + Buffer.from("rzp_test_ID:SECRET123").toString("base64"));
+  assert.deepEqual([calls[0].body.plan_id, calls[0].body.total_count, calls[0].body.notes.uid], ["plan_1", 120, "u1"]);
+  await c.cancelSubscription("sub_T1", true);
+  assert.equal(calls[1].url, "https://api.razorpay.com/v1/subscriptions/sub_T1/cancel");
+  assert.deepEqual(calls[1].body, { cancel_at_cycle_end: 1 });
+  await assert.rejects(c.fetchSubscription("sub_BAD"), (e: Error) => e instanceof RazorpayError && e.status === 400 && e.message === "razorpay_400_BAD_REQUEST_ERROR" && !e.message.includes("SECRET"));
+  await assert.rejects(async () => c.fetchSubscription("../../x"), (e: Error) => e instanceof RazorpayError && e.code === "bad_id");
 });

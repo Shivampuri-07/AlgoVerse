@@ -189,4 +189,14 @@ Use addresses you control (plus-addressing like `you+free@gmail.com` works with 
 - Production deployment: not rebuilt (redeploying a Preview builds that Preview only; Production
   is built from `main`, which is not merged).
 - The Production Gemini key and its quota: untouched (a separate Google Cloud project).
-- Payments: off (`PRICING.paymentsEnabled = false`; no Razorpay variables).
+- Payments: off in Production — billing routes return 404 when `VERCEL_ENV=production`, and live
+  keys disable billing everywhere. No Razorpay variables in the Production scope.
+
+## 10. Razorpay TEST-mode billing (Preview only)
+
+Setup and flow: docs/BILLING.md ("Razorpay test dashboard setup"). Once the test variables are in
+the Preview branch scope and the Preview is redeployed, the upgrade dialog shows "Test mode … No
+real money is charged" and **Continue to payment**. Use Razorpay's test cards/UPI from their docs.
+Check: Pro appears only after the webhook (or `billing:reconcile --apply`), `/account/billing`
+shows the status and payment, **Cancel subscription** keeps Pro until the period end. Without the
+variables the dialog keeps saying "Payments aren't available yet".

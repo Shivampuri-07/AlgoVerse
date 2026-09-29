@@ -89,6 +89,13 @@ test("subscriptions and AI usage are server-only: no client reads or writes, eve
   await assertFails(alice().doc("aiUsageGlobal/2026-09-27").get());
   await assertFails(alice().doc("aiUsageGlobal/2026-09-27").set({ count: 0 }));
   await assertFails(alice().doc("webhookEvents/evt_1").set({}));
+  await assertFails(alice().doc("webhookEvents/evt_1").get());
+  // Billing (Razorpay test mode): a user can't read or forge their own billing records or payments.
+  await assertFails(alice().doc("billingAccounts/alice").get());
+  await assertFails(alice().doc("billingAccounts/alice").set({ status: "active", currentEnd: 9e12 }));
+  await assertFails(alice().doc("billingAccounts/alice/payments/pay_1").get());
+  await assertFails(alice().doc("billingAccounts/alice/payments/pay_2").set({ amount: 3000, status: "captured" }));
+  await assertFails(alice().collection("billingAccounts/alice/payments").get());
 });
 
 test("entitlements are server-only: a user can't read or grant their own plan", async () => {

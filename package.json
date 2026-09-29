@@ -22,6 +22,7 @@
     "test:firebase": "npx -y firebase-tools@15.31.0 emulators:exec --only auth,firestore --project demo-algoverse \"npm run test:rules && npm run test:auth-emulator\"",
     "check:secrets": "node scripts/check-bundle-secrets.mjs",
     "test:e2e": "node scripts/tests/run-e2e.mjs",
+    "billing:reconcile": "node --experimental-strip-types --no-warnings --import ./scripts/tests/register.mjs scripts/billing-reconcile.ts",
     "test:billing-unit": "node --experimental-strip-types --no-warnings --import ./scripts/tests/register.mjs --test scripts/tests/billing-unit.test.ts",
     "test:workspace": "node --experimental-strip-types --no-warnings --import ./scripts/tests/register.mjs --test scripts/tests/workspace-unit.test.ts",
     "test:sync-unit": "node --experimental-strip-types --no-warnings --import ./scripts/tests/register.mjs --test scripts/tests/sync-unit.test.ts"

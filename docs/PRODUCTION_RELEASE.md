@@ -9,7 +9,7 @@ itself, a reason to release.
 
 Accounts (Firebase), Pro cloud sync (size-bounded), per-account local workspaces (account
 isolation), Pro learning resources (articles + videos + in-app player), plans/pricing UI (no
-payments), billing readiness core (not live), AI helper behind sign-in + verified email with
+payments), Razorpay subscription billing in TEST mode (disabled on Production by code; not live), AI helper behind sign-in + verified email with
 Free 10/day · Pro 50/day · 5/min · whole-app daily cap, Google sign-in domain diagnostics, and
 Preview Gemini-key isolation (`GEMINI_KEY_SCOPE`).
 
@@ -17,9 +17,9 @@ Preview Gemini-key isolation (`GEMINI_KEY_SCOPE`).
 
 | Area | Evidence |
 |---|---|
-| Unit tests | `npm test` — 140 pass (AI 41, SW 9, videos 14, auth 43, sync 15, billing 6, workspaces 12) |
-| Firebase emulator tests | `npm run test:firebase` — rules 9/9, API 23/23 |
-| Browser tests | `npm run test:e2e` — 39/39 (production builds + emulators, system Chrome) |
+| Unit tests | `npm test` — 149 pass (43 + 9 + 14 + 48 + 15 + billing 8 + 12) |
+| Firebase emulator tests | `npm run test:firebase` — rules 9/9, API 32/32 (8 billing) |
+| Browser tests | `npm run test:e2e` — 43/43 (incl. mocked-Razorpay checkout → webhook → cancel) |
 | Types / lint / data / build | `tsc --noEmit`, `npm run lint`, `npm run validate:data` (RESULT PASS, VIDEOS PASS), `npm run build` — pass |
 | Bundle secrets | `npm run check:secrets` — no server secret (Production and Preview keys checked) and none of 643 Pro links in browser files |
 | Local browser audit (production build) | manifest + icons, service worker scope/control, dashboard, search, difficulty filter, topics, random problem, practice links, completion/streak/bookmark/note persistence, export → import, dark theme, offline (cached page, `/offline` fallback, `/api` never cached), 390px no horizontal overflow on 10 pages, mobile navigation/scroll |
@@ -34,6 +34,8 @@ Preview Gemini-key isolation (`GEMINI_KEY_SCOPE`).
 - Live Preview AI checks: verified user answer, unverified denial, signed-out denial, limits and
   the 30/day cap against real Firestore — covered locally (unit + emulator + e2e), not live.
 - Real devices (iOS/Android install, safe-area on a notched phone) — only headless Chrome.
+- Billing against the real Razorpay test sandbox (no test keys yet) and webhook delivery through
+  Vercel protection — see docs/BILLING.md.
 - Remote-only Git refs on GitHub (e.g. PR refs) were not scanned.
 
 ## Blockers before a Production release (owner decisions)
@@ -59,7 +61,8 @@ Preview Gemini-key isolation (`GEMINI_KEY_SCOPE`).
    (`firestore.rules` unchanged since?); optionally remove the Preview hostnames from Production's
    Authorized domains (Preview now has its own project).
 4. Production Vercel variables (Production scope only): add `AI_GLOBAL_DAILY_LIMIT`; do **not** add
-   `GEMINI_KEY_SCOPE` (not needed outside Preview); keep payments off (no `RAZORPAY_*`).
+   `GEMINI_KEY_SCOPE` (not needed outside Preview); keep payments off (no `RAZORPAY_*`; billing is also code-disabled on Production). Going live
+   needs a separate, explicit owner approval and a code change (`ALLOW_LIVE_PAYMENTS`).
 5. Open a PR `feat/accounts-firebase → main`; review; merge only with explicit approval.
 6. After the Production build: `/api/auth/diagnostics` (essentials only), sign in with email and
    Google on `algo-verse-phi.vercel.app`, open a problem, sync as a Pro test account, ask one AI question.

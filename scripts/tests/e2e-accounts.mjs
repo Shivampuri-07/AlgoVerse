@@ -1382,6 +1382,101 @@ test("AI helper: a verified user chats as before, sees the allowance, and gets a
   await context.close();
 });
 
+// ------------------------------------------------------------------ Razorpay billing (TEST mode, mocked Razorpay)
+
+test("billing (test mode): checkout → Pro only after the signed webhook → payment history → cancel keeps Pro to period end", async () => {
+  const { createServer } = await import("node:http");
+  const { createHmac } = await import("node:crypto");
+  const subs = new Map();
+  let cancelCalls = 0;
+  const mock = createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      const m = /^\/v1\/subscriptions(?:\/(sub_\w+))?(\/cancel)?$/.exec(req.url ?? "");
+      res.setHeader("Content-Type", "application/json");
+      if (!m) return res.writeHead(404).end("{}");
+      if (!m[1]) {
+        const id = `sub_E2E${Date.now()}`;
+        subs.set(id, { status: "created" });
+        return res.end(JSON.stringify({ id, status: "created" }));
+      }
+      if (m[2]) cancelCalls++;
+      res.end(JSON.stringify({ id: m[1], status: subs.get(m[1])?.status ?? "active" }));
+    });
+  });
+  await new Promise((r) => mock.listen(3190, "127.0.0.1", r));
+  const SECRET = "whsec_e2e_test";
+  const PORT = 3127;
+  startServer(PORT, ".next-e2e", {
+    ...process.env,
+    FIREBASE_PROJECT_ID: "demo-algoverse",
+    RAZORPAY_MODE: "test",
+    RAZORPAY_KEY_ID: "rzp_test_E2E",
+    RAZORPAY_KEY_SECRET: "sk_test_e2e",
+    RAZORPAY_WEBHOOK_SECRET: SECRET,
+    RAZORPAY_PLAN_ID: "plan_E2E30",
+    RAZORPAY_API_BASE: "http://127.0.0.1:3190",
+  });
+  const BASE = `http://localhost:${PORT}`;
+  await waitFor(`${BASE}/login`);
+  const { context, page } = await newPage(BASE);
+  // Stand-in for Razorpay's Checkout script: "pays" and calls the success handler.
+  await context.route("https://checkout.razorpay.com/v1/checkout.js", (route) =>
+    route.fulfill({
+      contentType: "application/javascript",
+      body: "window.Razorpay=function(o){this.open=function(){window.__rzp={key:o.key,subscription_id:o.subscription_id};setTimeout(function(){o.handler({razorpay_payment_id:'pay_fake',razorpay_subscription_id:o.subscription_id,razorpay_signature:'x'})},100)}};",
+    })
+  );
+  const email = `e2e-bill-${Date.now()}@example.com`;
+  await signUpInUi(page, email);
+  const [code] = await oobCodesFor(email);
+  await fetch(`${AUTH}/identitytoolkit.googleapis.com/v1/accounts:update?key=demo-api-key`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ oobCode: code.oobCode }) });
+  await page.goto("/account?verified=1");
+  await page.getByText("Verified", { exact: true }).waitFor();
+
+  await page.goto("/account/billing");
+  await page.getByRole("button", { name: "Upgrade to Pro" }).first().click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByTestId("payments-test-mode").waitFor();
+  assert.match(await dialog.getByTestId("payments-test-mode").innerText(), /Test mode/);
+  await dialog.getByTestId("continue-to-payment").click();
+  await dialog.getByTestId("payment-activating").waitFor();
+  const opened = await page.evaluate(() => window.__rzp);
+  assert.equal(opened.key, "rzp_test_E2E", "only the public key id reaches the browser");
+  // The checkout callback alone grants nothing.
+  await page.waitForTimeout(2500);
+  assert.equal((await page.evaluate(async () => (await fetch("/api/me/entitlements")).json())).plan, "free", "no Pro from the browser callback");
+
+  // Razorpay's signed webhook arrives → Pro.
+  const now = Math.floor(Date.now() / 1000);
+  const raw = JSON.stringify({
+    event: "subscription.charged",
+    created_at: now,
+    payload: {
+      subscription: { entity: { id: opened.subscription_id, status: "active", current_end: now + 30 * 86400 } },
+      payment: { entity: { id: `pay_E2E${now}`, amount: 3000, currency: "INR", status: "captured", created_at: now } },
+    },
+  });
+  const hook = await fetch(`${BASE}/api/billing/webhook`, { method: "POST", headers: { "Content-Type": "application/json", "x-razorpay-signature": createHmac("sha256", SECRET).update(raw).digest("hex"), "x-razorpay-event-id": `evt_e2e_${now}` }, body: raw });
+  assert.equal(hook.status, 200);
+  await page.waitForURL(`${BASE}/account/billing`, { waitUntil: "load" }); // the dialog reloads the page once Pro is on
+  await page.getByTestId("current-plan").getByText("Active").waitFor({ timeout: 30_000 });
+  assert.match(await page.getByTestId("current-plan").innerText(), /Pro\s*Active/);
+  await page.getByTestId("payment-history").waitFor();
+  assert.match(await page.getByTestId("payment-history").innerText(), /₹30[\s\S]*captured/i);
+  assert.match(await page.getByTestId("subscription-status").innerText(), /Active[\s\S]*test mode/);
+
+  // Cancel → confirm → Pro stays; status shows the cancellation.
+  await page.getByTestId("cancel-subscription").click();
+  await page.getByTestId("confirm-cancel").click();
+  await page.getByTestId("subscription-status").getByText(/cancelled; Pro stays until the end of the paid period/).waitFor();
+  assert.equal(cancelCalls, 1, "Razorpay asked to cancel at period end");
+  assert.equal((await page.evaluate(async () => (await fetch("/api/me/entitlements")).json())).plan, "pro");
+  await context.close();
+  mock.close();
+});
+
 // ------------------------------------------------------------------ Pro learning resources (articles + videos)
 
 async function proLinksIn(html) {

@@ -564,3 +564,207 @@ test("status: the database probe reads a valid path and reports ok (the reserved
   assert.equal(body.database, "ok", "the probe succeeds");
   assert.equal((await db.doc(STATUS_PROBE_PATH).get()).exists, false, "read-only: nothing is created");
 });
+
+// ---------------------------------------------------------------- Razorpay billing (TEST mode, mocked Razorpay API)
+
+const { createHmac } = await import("node:crypto");
+const checkoutRoute = await import("@/app/api/billing/checkout/route");
+const webhookRoute = await import("@/app/api/billing/webhook/route");
+const cancelRoute = await import("@/app/api/billing/cancel/route");
+const billingStatusRoute = await import("@/app/api/billing/status/route");
+const WEBHOOK_SECRET = "whsec_test_emulator";
+const BILLING_ENV = { RAZORPAY_MODE: "test", RAZORPAY_KEY_ID: "rzp_test_EMULATOR", RAZORPAY_KEY_SECRET: "sk_test_emulator", RAZORPAY_WEBHOOK_SECRET: WEBHOOK_SECRET, RAZORPAY_PLAN_ID: "plan_TEST30" };
+Object.assign(process.env, BILLING_ENV);
+// Mocked Razorpay API (everything else passes through).
+const razorpay = { created: 0, cancelled: [] as string[], subs: new Map<string, { status: string; current_end: number | null }>() };
+const fetchBeforeBilling = globalThis.fetch;
+globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const url = String(input);
+  if (!url.startsWith("https://api.razorpay.com/")) return fetchBeforeBilling(input, init);
+  assert.equal(new Headers(init?.headers).get("authorization"), "Basic " + Buffer.from("rzp_test_EMULATOR:sk_test_emulator").toString("base64"));
+  const m = /\/v1\/subscriptions(?:\/(sub_\w+))?(\/cancel)?$/.exec(new URL(url).pathname);
+  if (!m) return new Response("{}", { status: 404 });
+  if (!m[1]) {
+    const id = `sub_T${++razorpay.created}${Date.now().toString(36)}`;
+    razorpay.subs.set(id, { status: "created", current_end: null });
+    return new Response(JSON.stringify({ id, status: "created" }), { status: 200 });
+  }
+  const s = razorpay.subs.get(m[1]);
+  if (!s) return new Response(JSON.stringify({ error: { code: "BAD_REQUEST_ERROR" } }), { status: 400 });
+  if (m[2]) razorpay.cancelled.push(m[1]);
+  return new Response(JSON.stringify({ id: m[1], ...s }), { status: 200 });
+}) as typeof fetch;
+
+const post = (route: { POST: (r: Request) => Promise<Response> }, path: string, cookie: string, origin = ORIGIN) =>
+  route.POST(new Request(`${ORIGIN}${path}`, { method: "POST", headers: { "Content-Type": "application/json", cookie, origin }, body: "{}" }));
+let evSeq = 0;
+function subEvent(subId: string, status: string, opts: { createdAt: number; currentEnd?: number | null; payment?: { id: string; amount?: number; status?: string } }) {
+  return {
+    event: `subscription.${status === "active" && opts.payment ? "charged" : status}`,
+    created_at: Math.floor(opts.createdAt / 1000),
+    payload: {
+      subscription: { entity: { id: subId, status, current_end: opts.currentEnd == null ? null : Math.floor(opts.currentEnd / 1000) } },
+      ...(opts.payment ? { payment: { entity: { id: opts.payment.id, amount: opts.payment.amount ?? 3000, currency: "INR", status: opts.payment.status ?? "captured", created_at: Math.floor(opts.createdAt / 1000) } } } : {}),
+    },
+  };
+}
+async function deliver(body: unknown, opts: { eventId?: string; secret?: string; raw?: string } = {}) {
+  const raw = opts.raw ?? JSON.stringify(body);
+  const sig = createHmac("sha256", opts.secret ?? WEBHOOK_SECRET).update(raw).digest("hex");
+  const res = await webhookRoute.POST(new Request(`${ORIGIN}/api/billing/webhook`, { method: "POST", headers: { "Content-Type": "application/json", "x-razorpay-signature": sig, "x-razorpay-event-id": opts.eventId ?? `evt_${++evSeq}${Date.now()}` }, body: raw }));
+  return { status: res.status, body: await res.json() };
+}
+const plan = async (cookie: string) => (await (await entRoute.GET(new Request(`${ORIGIN}/api/me/entitlements`, { headers: { cookie } }))).json()) as { plan: string; expiresAt: string | null };
+const DAY = 86_400_000;
+const sec = (ms: number) => Math.floor(ms / 1000) * 1000; // Razorpay timestamps are whole seconds
+
+async function subscribedUser(tag: string) {
+  const u = await verifiedSession(`bill-${tag}-${Date.now()}@example.com`);
+  const res = await post(checkoutRoute, "/api/billing/checkout", u.cookie);
+  assert.equal(res.status, 200, "checkout starts");
+  const body = await res.json();
+  return { ...u, subId: body.subscriptionId as string, checkout: body };
+}
+
+test("billing: checkout needs sign-in, same-origin and a verified email; it records the subscription but grants nothing", async () => {
+  assert.equal((await post(checkoutRoute, "/api/billing/checkout", "")).status, 401);
+  const unverified = await newSession(`bill-unv-${Date.now()}@example.com`);
+  assert.equal((await post(checkoutRoute, "/api/billing/checkout", unverified.cookie)).status, 403);
+  const v = await verifiedSession(`bill-csrf-${Date.now()}@example.com`);
+  assert.equal((await post(checkoutRoute, "/api/billing/checkout", v.cookie, "https://evil.example")).status, 403);
+  const u = await subscribedUser("start");
+  assert.deepEqual(Object.keys(u.checkout).sort(), ["email", "keyId", "subscriptionId"], "only public data to the browser");
+  assert.equal(u.checkout.keyId, "rzp_test_EMULATOR");
+  assert.ok(!JSON.stringify(u.checkout).includes("sk_test_emulator"), "no key secret");
+  const rec = (await getAdminDb()!.doc(`subscriptions/${u.subId}`).get()).data();
+  assert.equal(rec?.uid, u.uid, "our record ties the subscription to this user");
+  assert.equal((await plan(u.cookie)).plan, "free", "starting checkout grants nothing");
+});
+
+test("billing: Pro ONLY via a verified webhook — bad/missing signature or wrong secret change nothing; a charge activates Pro and records the payment", async () => {
+  const u = await subscribedUser("activate");
+  const t = Date.now();
+  const end = sec(t + 30 * DAY);
+  const charged = subEvent(u.subId, "active", { createdAt: t, currentEnd: end, payment: { id: `pay_A${Date.now()}` } });
+  const raw = JSON.stringify(charged);
+  const bad = await webhookRoute.POST(new Request(`${ORIGIN}/api/billing/webhook`, { method: "POST", headers: { "x-razorpay-signature": "0".repeat(64), "x-razorpay-event-id": "evt_bad1" }, body: raw }));
+  assert.equal(bad.status, 400);
+  const none = await webhookRoute.POST(new Request(`${ORIGIN}/api/billing/webhook`, { method: "POST", headers: { "x-razorpay-event-id": "evt_bad2" }, body: raw }));
+  assert.equal(none.status, 400);
+  assert.equal((await deliver(charged, { secret: "wrong-secret" })).status, 400);
+  // A body altered after signing (e.g. the payment status) fails verification.
+  const tampered = await webhookRoute.POST(new Request(`${ORIGIN}/api/billing/webhook`, { method: "POST", headers: { "x-razorpay-signature": createHmac("sha256", WEBHOOK_SECRET).update(raw).digest("hex"), "x-razorpay-event-id": "evt_bad3" }, body: raw.replace('"captured"', '"refunded"') }));
+  assert.equal(tampered.status, 400);
+  assert.equal((await plan(u.cookie)).plan, "free", "unverified events change nothing");
+  // The browser can't claim Pro either (entitlements are server-only; no client write path exists).
+  const ok = await deliver(charged);
+  assert.deepEqual([ok.status, ok.body.outcome], [200, "applied"]);
+  const p = await plan(u.cookie);
+  assert.equal(p.plan, "pro");
+  assert.equal(new Date(p.expiresAt!).getTime(), end + 3 * DAY, "paid period + 3-day renewal grace");
+  const status = await (await billingStatusRoute.GET(new Request(`${ORIGIN}/api/billing/status`, { headers: { cookie: u.cookie } }))).json();
+  assert.equal(status.subscription.status, "active");
+  assert.equal(status.payments.length, 1);
+  assert.deepEqual([status.payments[0].amount, status.payments[0].currency, status.payments[0].status], [3000, "INR", "captured"]);
+});
+
+test("billing: duplicate deliveries and out-of-order events are harmless", async () => {
+  const u = await subscribedUser("dup");
+  const t = Date.now();
+  const charged = subEvent(u.subId, "active", { createdAt: t, currentEnd: t + 30 * DAY, payment: { id: `pay_D${Date.now()}` } });
+  const first = await deliver(charged, { eventId: `evt_dup_${u.uid.slice(0, 8)}` });
+  const again = await deliver(charged, { eventId: `evt_dup_${u.uid.slice(0, 8)}` });
+  assert.deepEqual([first.body.outcome, again.body.outcome, again.status], ["applied", "duplicate", 200]);
+  const payments = await getAdminDb()!.collection(`billingAccounts/${u.uid}/payments`).get();
+  assert.equal(payments.size, 1, "one payment row, not two");
+  // An older 'authenticated' event arriving late can't take Pro away.
+  const late = await deliver(subEvent(u.subId, "authenticated", { createdAt: t - 60_000 }));
+  assert.equal(late.body.outcome, "stale");
+  assert.equal((await plan(u.cookie)).plan, "pro");
+});
+
+test("billing: renewal extends Pro; a failed renewal (pending) keeps it within grace; halted ends it", async () => {
+  const u = await subscribedUser("renew");
+  const t = Date.now();
+  await deliver(subEvent(u.subId, "active", { createdAt: t - 40 * DAY, currentEnd: t - 10 * DAY, payment: { id: `pay_R1${Date.now()}` } }));
+  const renewalEnd = sec(t + 20 * DAY);
+  await deliver(subEvent(u.subId, "active", { createdAt: t - 10 * DAY, currentEnd: renewalEnd, payment: { id: `pay_R2${Date.now()}` } }));
+  assert.equal(new Date((await plan(u.cookie)).expiresAt!).getTime(), renewalEnd + 3 * DAY, "renewed period");
+  assert.equal((await getAdminDb()!.collection(`billingAccounts/${u.uid}/payments`).get()).size, 2, "both charges in history");
+  // Next renewal fails: Razorpay retries (pending) — still Pro.
+  await deliver(subEvent(u.subId, "pending", { createdAt: t - 1000, currentEnd: renewalEnd }));
+  assert.equal((await plan(u.cookie)).plan, "pro", "pending keeps Pro during retries");
+  // Retries exhausted: halted — Pro ends now.
+  await deliver(subEvent(u.subId, "halted", { createdAt: t, currentEnd: renewalEnd }));
+  assert.equal((await plan(u.cookie)).plan, "free", "halted ends Pro");
+});
+
+test("billing: cancel (own subscription only) → Razorpay cancels at period end; Pro stays until then", async () => {
+  const u = await subscribedUser("cancel");
+  const other = await verifiedSession(`bill-other-${Date.now()}@example.com`);
+  assert.equal((await post(cancelRoute, "/api/billing/cancel", other.cookie)).status, 409, "someone without a subscription can't cancel anything");
+  assert.equal((await post(cancelRoute, "/api/billing/cancel", "")).status, 401);
+  const t = Date.now();
+  const end = sec(t + 25 * DAY);
+  await deliver(subEvent(u.subId, "active", { createdAt: t - 5 * DAY, currentEnd: end, payment: { id: `pay_C${Date.now()}` } }));
+  assert.equal((await post(cancelRoute, "/api/billing/cancel", u.cookie, "https://evil.example")).status, 403, "cross-site cancel blocked");
+  const res = await post(cancelRoute, "/api/billing/cancel", u.cookie);
+  assert.equal(res.status, 200);
+  assert.ok(razorpay.cancelled.includes(u.subId), "Razorpay asked to cancel at cycle end");
+  assert.equal((await plan(u.cookie)).plan, "pro", "still Pro after cancelling");
+  assert.equal((await post(cancelRoute, "/api/billing/cancel", u.cookie)).status, 409, "no double cancel");
+  // Razorpay later reports the cancellation: Pro until the paid period ends (no grace).
+  await deliver(subEvent(u.subId, "cancelled", { createdAt: t, currentEnd: end }));
+  const p = await plan(u.cookie);
+  assert.deepEqual([p.plan, new Date(p.expiresAt!).getTime()], ["pro", end]);
+});
+
+test("billing: forged/unknown subscriptions, non-subscription events and a longer manual grant", async () => {
+  // A validly signed event for a subscription we never created (e.g. notes.uid spoofed) grants nothing.
+  const forged = await deliver(subEvent("sub_FORGED123", "active", { createdAt: Date.now(), currentEnd: Date.now() + 30 * DAY }));
+  assert.deepEqual([forged.status, forged.body.outcome], [200, "unknown_subscription"]);
+  // Other Razorpay events are acknowledged and ignored.
+  assert.equal((await deliver({ event: "payment.captured", created_at: 1, payload: {} })).body.outcome, "ignored");
+  // A user with a year-long manual grant keeps it even if their subscription halts.
+  const u = await subscribedUser("manual");
+  const yearEnd = sec(Date.now() + 365 * DAY);
+  await getAdminDb()!.doc(`entitlements/${u.uid}`).set({ plan: "pro", expiresAt: Timestamp.fromMillis(yearEnd), source: "manual" });
+  await deliver(subEvent(u.subId, "halted", { createdAt: Date.now(), currentEnd: Date.now() }));
+  const p = await plan(u.cookie);
+  assert.deepEqual([p.plan, new Date(p.expiresAt!).getTime()], ["pro", yearEnd]);
+});
+
+test("billing: disabled on Production and without test configuration — every billing route answers 404", async () => {
+  const saved = process.env.VERCEL_ENV;
+  process.env.VERCEL_ENV = "production";
+  try {
+    const u = await verifiedSession(`bill-prod-${Date.now()}@example.com`);
+    assert.equal((await post(checkoutRoute, "/api/billing/checkout", u.cookie)).status, 404);
+    assert.equal((await post(cancelRoute, "/api/billing/cancel", u.cookie)).status, 404);
+    assert.equal((await deliver(subEvent("sub_X1", "active", { createdAt: Date.now(), currentEnd: Date.now() }))).status, 404);
+    assert.deepEqual(await (await billingStatusRoute.GET(new Request(`${ORIGIN}/api/billing/status`, { headers: { cookie: u.cookie } }))).json(), { enabled: false });
+  } finally {
+    if (saved === undefined) delete process.env.VERCEL_ENV;
+    else process.env.VERCEL_ENV = saved;
+  }
+  const savedKey = process.env.RAZORPAY_KEY_ID;
+  process.env.RAZORPAY_KEY_ID = "rzp_live_SHOULD_NOT_WORK";
+  try {
+    assert.equal((await deliver(subEvent("sub_X2", "active", { createdAt: Date.now(), currentEnd: Date.now() }))).status, 404, "a live key disables billing");
+  } finally {
+    process.env.RAZORPAY_KEY_ID = savedKey;
+  }
+});
+
+test("billing: reconciliation applies Razorpay's current state through the same rules (missed webhook)", async () => {
+  const { reconcileSubscription } = await import("@/lib/billing/service");
+  const { razorpayClient } = await import("@/lib/billing/razorpay");
+  const { razorpaySettings } = await import("@/lib/billing/config");
+  const u = await subscribedUser("reconcile");
+  const end = Date.now() + 30 * DAY;
+  razorpay.subs.set(u.subId, { status: "active", current_end: Math.floor(end / 1000) }); // paid, but the webhook never arrived
+  assert.equal((await plan(u.cookie)).plan, "free");
+  const r = await reconcileSubscription(getAdminDb()!, razorpayClient(razorpaySettings()), u.subId);
+  assert.equal(r.outcome, "applied");
+  assert.equal((await plan(u.cookie)).plan, "pro");
+});
