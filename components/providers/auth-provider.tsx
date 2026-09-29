@@ -423,12 +423,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (current.providerData.some((p) => p.providerId === "password")) {
           throw new AccountError("This account already has a password. Use Change password instead.", "auth/provider-already-linked");
         }
-        const { updatePassword } = await import("firebase/auth");
+        const { EmailAuthProvider, reauthenticateWithCredential, updatePassword } = await import("firebase/auth");
         await updatePassword(current, password);
+        // A password change revokes the account's earlier sessions (the server checks revocation
+        // against each token's sign-in time). Sign in again on this SAME account with the new
+        // password — a fresh sign-in time, and proof the password works — then issue the session.
+        // If that fails, sign out fully rather than looking signed in with a dead session.
+        await reauthenticateWithCredential(current, EmailAuthProvider.credential(current.email, password));
         await current.reload().catch(() => {});
-        // Firebase revokes existing sessions when a password changes (the server checks revocation),
-        // so issue a new server session from the fresh ID token. If that fails, sign out fully
-        // rather than looking signed in with a dead session.
         const session = await sessionOrSignOut(auth, current, "Your password was set, but you need to log in again:");
         applySignedIn({ ...session, emailVerified: current.emailVerified, displayName: current.displayName ?? session.displayName });
       },

@@ -48,6 +48,9 @@ export interface AiDeps {
   now(): number;
 }
 
+/** How long the primary model may take to start answering before the lighter model is tried. */
+const PRIMARY_FIRST_TOKEN_MS = 20_000;
+/** The last model's first-token wait (within the total budget). */
 const FIRST_TOKEN_TIMEOUT_MS = 30_000;
 const IDLE_TIMEOUT_MS = 30_000;
 const TOTAL_TIMEOUT_MS = 58_000;
@@ -160,31 +163,45 @@ export async function handleAiPost(req: Request, deps: AiDeps): Promise<Response
     }
   };
 
-  const controller = new AbortController();
-  const totalTimer = setTimeout(() => controller.abort(), TOTAL_TIMEOUT_MS);
-  let tokenTimer: ReturnType<typeof setTimeout> | undefined = setTimeout(
-    () => controller.abort(),
-    FIRST_TOKEN_TIMEOUT_MS,
-  );
+  // `overall` = the request's hard deadline and the client going away; each model attempt gets its
+  // own controller (linked to `overall`) so a SLOW primary can time out and fall back to the
+  // lighter model instead of failing the whole request.
+  const overall = new AbortController();
+  const totalTimer = setTimeout(() => overall.abort(), TOTAL_TIMEOUT_MS);
+  req.signal?.addEventListener("abort", () => overall.abort());
+  let controller = new AbortController(); // the attempt whose stream is sent to the client
+  let tokenTimer: ReturnType<typeof setTimeout> | undefined;
   const clearTimers = () => {
     clearTimeout(totalTimer);
     clearTimeout(tokenTimer);
   };
-  req.signal?.addEventListener("abort", () => controller.abort());
 
   const ai = new GoogleGenAI({ apiKey });
   const contents = buildContents(body);
   const systemInstruction = buildSystemInstruction(body.problem);
 
   // Open the stream and read the first chunk before answering, so failures that happen
-  // before any text (bad key, 429, overloaded model…) get a proper HTTP status — and can
-  // fall back to the lighter model — instead of a half-started stream.
+  // before any text (bad key, 429, overloaded or too-slow model…) get a proper HTTP status — and
+  // can fall back to the lighter model — instead of a half-started stream.
   let iterator: AsyncIterator<GenerateContentResponse> | undefined;
   let first: IteratorResult<GenerateContentResponse> | undefined;
   let model = "";
   const models = resolveModels();
   for (let i = 0; i < models.length; i++) {
     model = models[i];
+    const isLast = i === models.length - 1;
+    const attempt = new AbortController();
+    const relay = () => attempt.abort();
+    if (overall.signal.aborted) attempt.abort();
+    else overall.signal.addEventListener("abort", relay, { once: true });
+    let attemptTimedOut = false;
+    tokenTimer = setTimeout(
+      () => {
+        attemptTimedOut = true;
+        attempt.abort();
+      },
+      isLast ? FIRST_TOKEN_TIMEOUT_MS : PRIMARY_FIRST_TOKEN_MS
+    );
     try {
       const stream = await ai.models.generateContentStream({
         model,
@@ -194,17 +211,23 @@ export async function handleAiPost(req: Request, deps: AiDeps): Promise<Response
           temperature: 0.4,
           maxOutputTokens: 4096,
           ...(usesLowThinking(model) ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } } : {}),
-          abortSignal: controller.signal,
+          abortSignal: attempt.signal,
         },
       });
       iterator = stream[Symbol.asyncIterator]();
       first = await iterator.next();
+      controller = attempt;
       break;
     } catch (err) {
-      const mapped = mapGeminiError(err, controller.signal.aborted);
+      clearTimeout(tokenTimer);
+      tokenTimer = undefined;
+      overall.signal.removeEventListener("abort", relay);
+      const mapped = mapGeminiError(err, attempt.signal.aborted);
       // Code + HTTP status only — never the provider message (it can echo request details).
       console.error(`[ai] Gemini ${model} failed before streaming (${mapped.code}${httpStatus(err)})`);
-      if (i < models.length - 1 && canFallBack(mapped.code) && !controller.signal.aborted) continue;
+      // Fall back on overload/limits, or when this model was too slow to start — never after the
+      // client left or the request's overall deadline passed.
+      if (!isLast && !overall.signal.aborted && (canFallBack(mapped.code) || attemptTimedOut)) continue;
       clearTimers();
       await refund();
       return failMapped(mapped);

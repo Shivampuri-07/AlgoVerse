@@ -240,11 +240,11 @@ test("4d. malformed stream chunk → malformed_response", async () => {
   assert.equal((await jsonOf(res)).error.code, "malformed_response");
 });
 
-test("4e. no response within 30 s → 504 timeout", async () => {
+test("4e. neither model answers: the primary is abandoned after 20 s, the fallback after 30 s → 504 timeout", async () => {
   reset();
   mock.timers.enable({ apis: ["setTimeout"] });
   try {
-    // A Gemini call that never answers; it rejects when the route aborts its signal.
+    // Gemini calls that never answer; they reject when the route aborts their signal.
     globalThis.fetch = (async (_i: RequestInfo | URL, init?: RequestInit) => {
       calls.push({ url: String(_i), headers: new Headers(init?.headers), body: undefined });
       return new Promise<Response>((_, reject) => {
@@ -252,13 +252,58 @@ test("4e. no response within 30 s → 504 timeout", async () => {
       });
     }) as typeof fetch;
     const p = route.POST(req());
-    for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+    const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+    await settle();
+    mock.timers.tick(20_000); // primary too slow → fall back
+    await settle();
+    assert.equal(calls.length, 2, "the lighter model is tried after a slow primary");
+    assert.match(calls[1].url, /models\/gemini-3\.5-flash-lite:/);
     mock.timers.tick(30_000);
     const res = await p;
     assert.equal(res.status, 504);
     assert.equal((await jsonOf(res)).error.code, "timeout");
-    assert.equal(calls.length, 1, "a timeout is not retried on the fallback model");
   } finally { mock.timers.reset(); }
+});
+
+test("4g. a SLOW primary (no first chunk in 20 s) falls back to Flash-Lite, which answers → 200", async () => {
+  reset();
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    globalThis.fetch = (async (i: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(i), headers: new Headers(init?.headers), body: undefined });
+      if (/gemini-3\.8-flash/.test(String(i))) {
+        return new Promise<Response>((_, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+        });
+      }
+      return okStream([textChunk("Use a hash map.")]);
+    }) as typeof fetch;
+    const p = route.POST(req());
+    for (let k = 0; k < 8; k++) await new Promise((r) => setImmediate(r));
+    mock.timers.tick(20_000);
+    const ev = await events(await p);
+    assert.equal(ev.map((e) => e.text ?? "").join(""), "Use a hash map.");
+    assert.equal(ev.at(-1).model, "gemini-3.5-flash-lite");
+    assert.ok(errors.some((e) => /gemini-3\.8-flash failed before streaming \(timeout\)/.test(e)));
+  } finally { mock.timers.reset(); }
+});
+
+test("4h. the client leaving while the primary is slow stops everything — no fallback call", async () => {
+  reset();
+  globalThis.fetch = (async (i: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({ url: String(i), headers: new Headers(init?.headers), body: undefined });
+    return new Promise<Response>((_, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+    });
+  }) as typeof fetch;
+  const client = new AbortController();
+  const r = new Request("http://localhost:3000/api/ai", { method: "POST", headers: { "Content-Type": "application/json", "x-forwarded-for": `10.7.0.${++ip}` }, body: JSON.stringify(body), signal: client.signal });
+  const p = route.POST(r);
+  for (let k = 0; k < 8; k++) await new Promise((res) => setImmediate(res));
+  client.abort();
+  const res = await p;
+  assert.equal(res.status, 504);
+  assert.equal(calls.length, 1, "no fallback after the client left");
 });
 
 test("5. empty response (no text, finishReason STOP) → empty_response", async () => {
