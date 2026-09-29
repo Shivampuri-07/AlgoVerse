@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useFirebaseSetup } from "@/components/providers/firebase-config-provider";
 import { FormMessage } from "@/components/account/auth-card";
 import { Button } from "@/components/ui/button";
 
@@ -48,6 +49,14 @@ export function GoogleSignIn({ next, disabled, onLinkRequired, showExistingAccou
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [popupBlocked, setPopupBlocked] = React.useState(false);
+  const [domainBlocked, setDomainBlocked] = React.useState(false);
+  const { deployment } = useFirebaseSetup();
+  // On a per-deployment Vercel address, the same page on this Preview's stable (authorised) address.
+  const stableUrl = React.useMemo(() => {
+    const host = deployment?.stableHost;
+    if (!host || typeof window === "undefined" || window.location.hostname === host) return null;
+    return `https://${host}${window.location.pathname}${window.location.search}`;
+  }, [deployment?.stableHost]);
 
   async function run(redirect: boolean) {
     if (busy) return;
@@ -74,6 +83,7 @@ export function GoogleSignIn({ next, disabled, onLinkRequired, showExistingAccou
         break;
       case "error":
         setPopupBlocked(outcome.code === "auth/popup-blocked");
+        setDomainBlocked(outcome.code === "auth/unauthorized-domain");
         setError(outcome.message);
         break;
       default:
@@ -96,6 +106,11 @@ export function GoogleSignIn({ next, disabled, onLinkRequired, showExistingAccou
           your password. (If an unverified password account signs in with Google directly, Firebase keeps the
           account and its data but removes the old password, for security.)
         </p>
+      )}
+      {domainBlocked && stableUrl && (
+        <Button asChild variant="secondary" className="w-full" data-testid="open-stable-address">
+          <a href={stableUrl}>Open this Preview&apos;s stable address</a>
+        </Button>
       )}
       {popupBlocked && (
         <Button type="button" variant="ghost" className="w-full" onClick={() => run(true)} disabled={busy || disabled}>

@@ -1,11 +1,13 @@
 import { jsonResponse } from "@/lib/http";
-import { checkCredential } from "@/lib/firebase/admin-credential";
+import { checkCredential, parseServiceAccount } from "@/lib/firebase/admin-credential";
 import { loadAdminSdk, nodeSupportsFirebaseAdmin, requireEsmSupported } from "@/lib/firebase/admin-loader";
 import { PUBLIC_CONFIG_VARS, readPublicVars } from "@/lib/firebase/config";
 import { allowSetupDetails, deploymentInfo, vercelEnv } from "@/lib/firebase/deployment";
 import { getPublicConfigState, readRuntimePublicVars } from "@/lib/firebase/runtime-config";
 import { unexpectedFirebaseNames } from "@/scripts/firebase-env-report.mjs";
 import { globalDailyLimit } from "@/lib/ai/usage";
+import { checkAuthorizedDomains, requestHostname } from "@/lib/firebase/authorized-domains";
+import { stableHost as vercelStableHost } from "@/lib/firebase/deployment";
 
 /**
  * GET /api/auth/diagnostics — yes/no answers about this deployment's Firebase setup.
@@ -31,9 +33,10 @@ const SHORT: Record<(typeof PUBLIC_CONFIG_VARS)[number], string> = {
 };
 const ADMIN_VAR = "FIREBASE_SERVICE_ACCOUNT_KEY";
 
-export async function GET(): Promise<Response> {
+export async function GET(req: Request): Promise<Response> {
   const resolved = getPublicConfigState();
-  const credential = checkCredential().state;
+  const credentialCheck = checkCredential();
+  const credential = credentialCheck.state;
   const hasAdminCredential = Boolean(process.env[ADMIN_VAR]?.trim());
 
   // Only try to load the SDK when there is a credential to use it with.
@@ -79,8 +82,37 @@ export async function GET(): Promise<Response> {
       usable: !resolved.missing.includes(name),
     };
   }
+  // Google sign-in setup (Preview/local only; public identifiers and booleans — never a key).
+  const host = requestHostname(req);
+  const stable = vercelStableHost();
+  const clientProjectId = resolved.config?.projectId ?? null;
+  const authDomain = resolved.config?.authDomain ?? null;
+  // The service account's project id (not secret), even when it doesn't match the web config.
+  const parsedAccount = parseServiceAccount(process.env[ADMIN_VAR]);
+  const adminProjectId = credentialCheck.account?.project_id ?? (parsedAccount.ok ? parsedAccount.account.project_id : null);
+  const domains = await checkAuthorizedDomains(resolved.config?.apiKey, [host, stable], {
+    emulator: Boolean(resolved.authEmulatorHost),
+    referer: host ? `https://${host}/` : undefined,
+  });
+  const googleSignIn = {
+    requestHost: host,
+    stableHost: stable,
+    firebaseProjectId: clientProjectId,
+    // Firebase's OAuth handler lives on the auth domain: https://<authDomain>/__/auth/handler
+    authDomainMatchesProject: Boolean(clientProjectId && authDomain && (authDomain === `${clientProjectId}.firebaseapp.com` || authDomain === `${clientProjectId}.web.app`)),
+    adminProjectId,
+    clientAndServerSameProject: clientProjectId !== null && adminProjectId !== null ? clientProjectId === adminProjectId : null,
+    // Differs when Preview variables changed after this deployment was built (redeploy needed).
+    buildProjectId: build.NEXT_PUBLIC_FIREBASE_PROJECT_ID || null,
+    runtimeProjectId: runtimeVars.NEXT_PUBLIC_FIREBASE_PROJECT_ID || null,
+    authorizedDomains: domains.checked
+      ? { checked: true, requestHostAuthorized: host ? domains.results[host] : null, stableHostAuthorized: stable ? domains.results[stable] : null }
+      : { checked: false, reason: domains.reason },
+  };
+
   return jsonResponse({
     ...essentials,
+    googleSignIn,
     ...(adminSdkError ? { adminSdkError } : {}),
     deployment: deploymentInfo(),
     publicConfig,

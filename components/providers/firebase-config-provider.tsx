@@ -8,6 +8,8 @@ export interface DeploymentInfo {
   env: string | null;
   branch: string | null;
   commit: string | null;
+  /** Stable branch address of this Preview (e.g. algo-verse-git-<branch>-<team>.vercel.app). */
+  stableHost?: string | null;
 }
 
 export interface FirebaseSetup extends PublicConfigState {

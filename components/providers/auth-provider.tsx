@@ -167,7 +167,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [firebaseUid, setFirebaseUid] = React.useState<string | null | undefined>(undefined);
   const [verificationState, setVerificationState] = React.useState<VerificationState>(INITIAL_VERIFICATION_STATE);
   const stateRef = React.useRef<{ uid: string | null; state: VerificationState }>({ uid: null, state: INITIAL_VERIFICATION_STATE });
-  const { details: diagnostics } = useFirebaseSetup();
+  const { details: diagnostics, deployment } = useFirebaseSetup();
   const sendingRef = React.useRef<Promise<VerificationOutcome> | null>(null);
   const pendingLinkRef = React.useRef<PendingGoogleLink | null>(null);
   const [pendingGoogleLink, setPendingGoogleLink] = React.useState<{ email: string | null } | null>(null);
@@ -270,8 +270,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       return { status: "link-required", email };
     }
-    return { status: "error", code, message: googleErrorMessage(code) };
-  }, []);
+    return {
+      status: "error",
+      code,
+      message: googleErrorMessage(code, {
+        host: typeof window !== "undefined" ? window.location.hostname : undefined,
+        projectId: config?.projectId ?? null,
+        stableHost: deployment?.stableHost ?? null,
+        details: diagnostics,
+      }),
+    };
+  }, [config?.projectId, deployment?.stableHost, diagnostics]);
 
   /** After any Google sign-in: fresh Firebase state, then the server session. */
   const finishGoogleSignIn = React.useCallback(

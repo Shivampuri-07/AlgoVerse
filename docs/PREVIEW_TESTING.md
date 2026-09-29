@@ -87,6 +87,31 @@ Keep it on; no setting change is needed:
   web config.
 - If it shows `algoverse-f5b48`, **stop**: the Preview is still on Production.
 
+### If Google says "This site's domain isn't authorised for Google sign-in"
+
+That message is Firebase's `auth/unauthorized-domain`: before opening Google, the Firebase SDK
+checks the page's **hostname** against Authentication → Settings → **Authorized domains** of the
+project whose web API key the page uses (exact hostname, or a subdomain of an entry). It is not an
+OAuth-client problem, and it never reaches Google.
+
+Open `/api/auth/diagnostics` **on the exact address you used** (logged in to Vercel) and read
+`googleSignIn`:
+
+| Field | Meaning → fix |
+|---|---|
+| `requestHostAuthorized: false`, `stableHostAuthorized: true` | You're on a per-deployment address (`algo-verse-<hash>-algo-verse1.vercel.app`, new on every push). Use the stable address in `stableHost` — the sign-in page now offers a button for it. Don't add every deployment hash. |
+| `stableHostAuthorized: false` | Add `stableHost` (hostname only — no `https://`, path or port) under Authorized domains of the project named in `firebaseProjectId`. |
+| `firebaseProjectId: "algoverse-f5b48"` | The Preview still uses **Production**. Stop; set the Preview-only variables (§3) and redeploy. |
+| `clientAndServerSameProject: false` | `NEXT_PUBLIC_FIREBASE_*` and `FIREBASE_SERVICE_ACCOUNT_KEY` are from different projects (`adminProjectId` shows the key's). Fix the Preview-scoped variables, redeploy. |
+| `buildProjectId` ≠ `runtimeProjectId` | Variables changed after this deployment was built: redeploy the Preview. |
+| `authDomainMatchesProject: false` | `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` must be `<firebaseProjectId>.firebaseapp.com`. |
+| `authorizedDomains.checked: false` | The lookup couldn't run (`reason`); check in the Firebase console instead. |
+
+OAuth: with Firebase's built-in Google provider (enabled in *that* project → Authentication →
+Sign-in method → Google), Firebase creates and manages the OAuth client and its redirect URI
+`https://<authDomain>/__/auth/handler`. No Google Cloud Console change is needed unless you
+replaced it with your own client ID.
+
 ## 6. Gemini quota safeguards
 
 - `AI_GLOBAL_DAILY_LIMIT` caps AI questions for the whole deployment per day. It is counted in

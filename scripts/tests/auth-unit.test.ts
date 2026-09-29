@@ -230,9 +230,26 @@ test("the server credential is NOT needed for the browser config", withEnv({ ...
 }));
 
 const diagnosticsRoute = await import("@/app/api/auth/diagnostics/route");
+const diagReq = (host = "algo-verse-abc123-team.vercel.app") =>
+  new Request(`https://${host}/api/auth/diagnostics`, { headers: { host } });
+/** Stand-in for Firebase's public project-config lookup (no network in unit tests). */
+async function withProjectConfig<T>(authorizedDomains: string[] | null, fn: (calls: string[]) => Promise<T>): Promise<T> {
+  const realFetch = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    calls.push(String(input));
+    if (!String(input).startsWith("https://identitytoolkit.googleapis.com/v1/projects?key=")) throw new Error("unexpected network call");
+    return authorizedDomains ? new Response(JSON.stringify({ projectId: "123456", authorizedDomains }), { status: 200 }) : new Response("{}", { status: 403 });
+  }) as typeof fetch;
+  try {
+    return await fn(calls);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
 
 test("GET /api/auth/diagnostics (Preview): booleans and names only, never values", withEnv({ ...ALL, NEXT_PUBLIC_FIREBASE_APP_ID: undefined, FIREBASE_SERVICE_ACCOUNT_KEY: account(), VERCEL_ENV: "preview", "NEXT_PUBLIC_FIRBASE_APP_ID": "typo" }, async () => {
-  const res = await diagnosticsRoute.GET();
+  const res = await diagnosticsRoute.GET(diagReq());
   assert.equal(res.status, 200);
   const text = await res.text();
   const body = JSON.parse(text);
@@ -249,7 +266,7 @@ test("GET /api/auth/diagnostics (Preview): booleans and names only, never values
 }));
 
 test("GET /api/auth/diagnostics (Production): answers with essentials only — no 404, no detail", withEnv({ ...ALL, FIREBASE_SERVICE_ACCOUNT_KEY: undefined, VERCEL_ENV: "production", VERCEL_GIT_COMMIT_REF: "feat/x" }, async () => {
-  const res = await diagnosticsRoute.GET();
+  const res = await diagnosticsRoute.GET(diagReq("algo-verse-phi.vercel.app"));
   assert.equal(res.status, 200);
   const body = await res.json();
   assert.equal(body.environment, "production");
@@ -257,7 +274,7 @@ test("GET /api/auth/diagnostics (Production): answers with essentials only — n
   assert.deepEqual(body.missingPublicVariables, []);
   assert.equal(body.adminCredentialState, "missing");
   assert.deepEqual(body.missingServerVariables, ["FIREBASE_SERVICE_ACCOUNT_KEY"]);
-  for (const k of ["publicConfig", "deployment", "unrecognisedFirebaseVariableNames"]) assert.ok(!(k in body), `no ${k} on production`);
+  for (const k of ["publicConfig", "deployment", "unrecognisedFirebaseVariableNames", "googleSignIn", "firebaseProjectId"]) assert.ok(!(k in body), `no ${k} on production`);
 }));
 
 const loaderMod = await import("@/lib/firebase/admin-loader");
@@ -265,7 +282,7 @@ const loaderMod = await import("@/lib/firebase/admin-loader");
 test("if firebase-admin can't load (e.g. Node 18: ERR_REQUIRE_ESM), status/diagnostics explain it instead of a 500", withEnv({ ...ALL, FIREBASE_SERVICE_ACCOUNT_KEY: account(), NEXT_PUBLIC_FIREBASE_PROJECT_ID: "algoverse-test", VERCEL_ENV: "preview" }, async () => {
   loaderMod.setAdminLoaderForTests(() => Promise.reject(Object.assign(new Error("require() of ES Module"), { code: "ERR_REQUIRE_ESM" })));
   try {
-    const diag = await diagnosticsRoute.GET();
+    const diag = await withProjectConfig(["localhost"], () => diagnosticsRoute.GET(diagReq()));
     assert.equal(diag.status, 200);
     const d = await diag.json();
     assert.equal(d.adminSdk, "load_failed");
@@ -280,7 +297,7 @@ test("if firebase-admin can't load (e.g. Node 18: ERR_REQUIRE_ESM), status/diagn
   } finally {
     loaderMod.setAdminLoaderForTests(null);
   }
-  const ok = await (await diagnosticsRoute.GET()).json();
+  const ok = await withProjectConfig(["localhost"], async () => (await diagnosticsRoute.GET(diagReq())).json());
   assert.equal(ok.adminSdk, "ok", "real loader works on this Node version");
   assert.equal(ok.adminCredentialState, "ok");
 }));
@@ -495,9 +512,82 @@ test("a continue URL already known to be rejected → exactly one request per se
 
 test("Google errors from the Firebase SDK (incl. a real auth/unauthorized-domain) get clear messages; cancels are silent", async () => {
   const google = await import("@/lib/auth/google");
-  assert.match(google.googleErrorMessage("auth/unauthorized-domain"), /isn't authorised for Google sign-in/);
+  assert.match(google.googleErrorMessage("auth/unauthorized-domain"), /isn't authorised for Google sign-in/, "Production: neutral message");
   assert.match(google.googleErrorMessage("auth/popup-blocked"), /blocked the Google sign-in window/);
   assert.match(google.googleErrorMessage("auth/credential-already-in-use"), /never merged automatically/);
   assert.equal(google.isGoogleCancel("auth/popup-closed-by-user"), true);
   assert.equal(google.isGoogleCancel("auth/unauthorized-domain"), false);
+});
+
+// ---------------------------------------------------------------- Google sign-in: authorized domains
+
+// Production project's Authorized domains as read from Firebase on 2026-09-29 (public, non-secret).
+const PROD_DOMAINS = ["localhost", "algoverse-f5b48.firebaseapp.com", "algoverse-f5b48.web.app", "algo-verse-git-feat-accounts-firebase-algo-verse1.vercel.app", "algo-verse-phi.vercel.app", "algo-verse-cztr4xzv3-algo-verse1.vercel.app", "algo-verse-6lvyxg8z1-algo-verse1.vercel.app"];
+const BRANCH_HOST = "algo-verse-git-feat-accounts-firebase-algo-verse1.vercel.app";
+
+test("authorized-domain rule matches Firebase's: exact host or subdomain, http(s) only, no look-alikes", async () => {
+  const g = await import("@/lib/auth/google");
+  assert.equal(g.isAuthorizedHost(BRANCH_HOST, PROD_DOMAINS), true, "stable branch address is authorised");
+  assert.equal(g.isAuthorizedHost("algo-verse-15lr4tgm1-algo-verse1.vercel.app", PROD_DOMAINS), false, "a new per-deployment address is not — this is the reported error");
+  assert.equal(g.isAuthorizedHost("localhost", PROD_DOMAINS), true);
+  assert.equal(g.hostMatchesAuthorizedDomain("sub.algo-verse-phi.vercel.app", "algo-verse-phi.vercel.app"), true, "subdomains count (as in Firebase)");
+  assert.equal(g.hostMatchesAuthorizedDomain("evilalgo-verse-phi.vercel.app", "algo-verse-phi.vercel.app"), false, "no suffix look-alikes");
+  assert.equal(g.hostMatchesAuthorizedDomain("algo-verse-phi.vercel.app.evil.com", "algo-verse-phi.vercel.app"), false);
+  assert.equal(g.hostMatchesAuthorizedDomain("algo-verse-phiXvercel.app", "algo-verse-phi.vercel.app"), false, "dots are literal");
+  assert.equal(g.hostMatchesAuthorizedDomain("10.0.0.12", "10.0.0.1"), false, "IP addresses match exactly");
+  assert.equal(g.hostMatchesAuthorizedDomain(BRANCH_HOST, BRANCH_HOST, "file:"), false);
+  assert.equal(g.isAuthorizedHost("anything.vercel.app", PROD_DOMAINS), false, "vercel.app itself is not authorised");
+});
+
+test("auth/unauthorized-domain message: exact host, project and the stable address on Preview; neutral on Production", async () => {
+  const g = await import("@/lib/auth/google");
+  const preview = g.googleErrorMessage("auth/unauthorized-domain", { host: "algo-verse-15lr4tgm1-algo-verse1.vercel.app", projectId: "algoverse-preview", stableHost: BRANCH_HOST, details: true });
+  assert.match(preview, /algo-verse-15lr4tgm1-algo-verse1\.vercel\.app/);
+  assert.match(preview, /project "algoverse-preview" → Authentication → Settings → Authorized domains/);
+  assert.match(preview, new RegExp(`stable address ${BRANCH_HOST.replace(/\./g, "\\.")}`));
+  const onStable = g.googleErrorMessage("auth/unauthorized-domain", { host: BRANCH_HOST, projectId: "algoverse-preview", stableHost: BRANCH_HOST, details: true });
+  assert.match(onStable, new RegExp(`add ${BRANCH_HOST.replace(/\./g, "\\.")} to Firebase → project "algoverse-preview"`), "on the stable address: add it to the (Preview) project");
+  const prod = g.googleErrorMessage("auth/unauthorized-domain", { host: "algo-verse-phi.vercel.app", projectId: "algoverse-f5b48", details: false });
+  assert.doesNotMatch(prod, /algoverse-f5b48|Settings/, "no setup details on Production");
+  assert.match(g.googleErrorMessage("auth/operation-not-allowed"), /isn't enabled/, "other codes keep their own message");
+});
+
+test("authorized-domain lookup: same public endpoint as the SDK, booleans only, never blocks", async () => {
+  const { checkAuthorizedDomains, requestHostname } = await import("@/lib/firebase/authorized-domains");
+  const key = "AIzaSyTEST-FAKE-KEY-0123456789abcdefghi";
+  const r = await withProjectConfig(PROD_DOMAINS, (calls) =>
+    checkAuthorizedDomains(key, ["algo-verse-15lr4tgm1-algo-verse1.vercel.app", BRANCH_HOST, null], { referer: "https://x/" }).then((out) => ({ out, calls }))
+  );
+  assert.deepEqual(r.out, { checked: true, results: { "algo-verse-15lr4tgm1-algo-verse1.vercel.app": false, [BRANCH_HOST]: true } });
+  assert.equal(r.calls.length, 1);
+  assert.ok(!JSON.stringify(r.out).includes(key), "the key isn't in the result");
+  assert.deepEqual(await checkAuthorizedDomains(key, ["h"], { emulator: true }), { checked: false, reason: "emulator" }, "emulator: Firebase skips the check too");
+  assert.deepEqual(await checkAuthorizedDomains(null, ["h"]), { checked: false, reason: "no_config" });
+  assert.deepEqual(await withProjectConfig(null, () => checkAuthorizedDomains(key, ["h"])), { checked: false, reason: "lookup_failed" });
+  assert.equal(requestHostname(new Request("https://a.example/x", { headers: { "x-forwarded-host": "Preview.Example.app:443, proxy" } })), "preview.example.app");
+});
+
+test("Preview diagnostics: which project the client and server use, the stable address, and whether each host is authorised", withEnv({ ...ALL, FIREBASE_SERVICE_ACCOUNT_KEY: account({ project_id: "algoverse-f5b48" }), NEXT_PUBLIC_FIREBASE_PROJECT_ID: "algoverse-preview", NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "algoverse-preview.firebaseapp.com", VERCEL_ENV: "preview", VERCEL_BRANCH_URL: BRANCH_HOST }, async () => {
+  const host = "algo-verse-15lr4tgm1-algo-verse1.vercel.app";
+  const text = await withProjectConfig(["localhost", BRANCH_HOST], async () => (await diagnosticsRoute.GET(diagReq(host))).text());
+  const g = JSON.parse(text).googleSignIn;
+  assert.equal(g.requestHost, host);
+  assert.equal(g.stableHost, BRANCH_HOST);
+  assert.equal(g.firebaseProjectId, "algoverse-preview");
+  assert.equal(g.authDomainMatchesProject, true);
+  assert.equal(g.adminProjectId, "algoverse-f5b48", "the service account's project is reported even when it doesn't match");
+  assert.equal(g.clientAndServerSameProject, false, "client and server on different projects is flagged");
+  assert.deepEqual(g.authorizedDomains, { checked: true, requestHostAuthorized: false, stableHostAuthorized: true });
+  for (const secret of [ALL.NEXT_PUBLIC_FIREBASE_API_KEY, "PRIVATE KEY", "svc@", "algoverse-preview.firebaseapp.com"]) assert.ok(!text.includes(secret), `does not leak ${secret}`);
+}));
+
+test("stable branch address comes from VERCEL_BRANCH_URL on Preview, never on Production", async () => {
+  const deployment = await import("@/lib/firebase/deployment");
+  await withEnv({ VERCEL_ENV: "preview", VERCEL_BRANCH_URL: `https://${BRANCH_HOST}/` }, () => assert.equal(deployment.stableHost(), BRANCH_HOST))();
+  await withEnv({ VERCEL_ENV: "preview", VERCEL_BRANCH_URL: BRANCH_HOST }, () => assert.equal(deployment.deploymentInfo()?.stableHost, BRANCH_HOST))();
+  await withEnv({ VERCEL_ENV: "production", VERCEL_BRANCH_URL: BRANCH_HOST }, () => {
+    assert.equal(deployment.stableHost(), null);
+    assert.equal(deployment.deploymentInfo(), null);
+  })();
+  await withEnv({ VERCEL_ENV: "preview", VERCEL_BRANCH_URL: undefined }, () => assert.equal(deployment.stableHost(), null))();
 });

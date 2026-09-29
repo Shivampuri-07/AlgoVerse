@@ -46,14 +46,52 @@ export function isGoogleCancel(code: string): boolean {
   return CANCEL_CODES.has(code);
 }
 
-export function googleErrorMessage(code: string): string {
+/**
+ * Firebase's own authorized-domain rule (firebase/auth `matchDomain`): the page's hostname must
+ * equal an Authorized domain of the project that owns the web API key, or be a subdomain of one;
+ * http(s) only; IP addresses must match exactly. Used for diagnostics only — Firebase enforces it.
+ */
+export function hostMatchesAuthorizedDomain(host: string, domain: string, protocol = "https:"): boolean {
+  if (!/^https?:$/.test(protocol) || !host || !domain) return false;
+  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(domain)) return host === domain;
+  const escaped = domain.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^(.+\\.${escaped}|${escaped})$`, "i").test(host);
+}
+
+export function isAuthorizedHost(host: string, domains: readonly string[], protocol = "https:"): boolean {
+  return domains.some((d) => hostMatchesAuthorizedDomain(host, d, protocol));
+}
+
+/** What the message for auth/unauthorized-domain may mention (all public, non-secret). */
+export interface GoogleErrorContext {
+  /** The page's hostname (window.location.hostname). */
+  host?: string;
+  /** Firebase project whose Authorized domains are checked (the web config's projectId). */
+  projectId?: string | null;
+  /** Stable Vercel branch address for this Preview (VERCEL_BRANCH_URL), when known. */
+  stableHost?: string | null;
+  /** Setup details may be shown (Preview/local only; never on Production). */
+  details?: boolean;
+}
+
+export function unauthorizedDomainMessage(ctx: GoogleErrorContext = {}): string {
+  const { host, projectId, stableHost, details } = ctx;
+  if (!details || !host) return "This site's domain isn't authorised for Google sign-in in Firebase yet. You can log in with email and password meanwhile.";
+  const where = `Firebase → ${projectId ? `project "${projectId}" → ` : ""}Authentication → Settings → Authorized domains`;
+  if (stableHost && stableHost !== host) {
+    return `Google sign-in isn't allowed on this address (${host}) — it isn't in ${where}. Vercel gives every deployment its own address; use this Preview's stable address ${stableHost} instead (or add ${host} there).`;
+  }
+  return `Google sign-in isn't allowed on this address (${host}) — add ${host} to ${where}.`;
+}
+
+export function googleErrorMessage(code: string, ctx: GoogleErrorContext = {}): string {
   switch (code) {
     case "auth/popup-blocked":
       return "Your browser blocked the Google sign-in window. Allow pop-ups for this site, or continue in this tab instead.";
     case "auth/operation-not-allowed":
       return "Google sign-in isn't enabled for this app yet.";
     case "auth/unauthorized-domain":
-      return "This site's domain isn't authorised for Google sign-in in Firebase yet.";
+      return unauthorizedDomainMessage(ctx);
     case "auth/credential-already-in-use":
       return "That Google account is already used by a different AlgoVerse account. Accounts are never merged automatically — sign in with Google to use that account instead.";
     case "auth/provider-already-linked":

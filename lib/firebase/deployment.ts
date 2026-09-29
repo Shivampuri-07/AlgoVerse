@@ -15,11 +15,20 @@ export function allowSetupDetails(): boolean {
   return vercelEnv() !== "production";
 }
 
+/** This Preview's stable branch address (Vercel's VERCEL_BRANCH_URL; hostname only). Not on Production. */
+export function stableHost(): string | null {
+  if (!allowSetupDetails()) return null;
+  const raw = env["VERCEL_BRANCH_URL"]?.trim();
+  if (!raw) return null;
+  return raw.replace(/^https?:\/\//, "").split("/")[0].toLowerCase() || null;
+}
+
 export function deploymentInfo(): DeploymentInfo | null {
   if (!allowSetupDetails()) return null;
   return {
     env: vercelEnv() ?? (env["NODE_ENV"] === "production" ? "local production build" : "local development"),
     branch: env["VERCEL_GIT_COMMIT_REF"] || null,
+    stableHost: stableHost(),
     commit: env["VERCEL_GIT_COMMIT_SHA"]?.slice(0, 7) || null,
   };
 }

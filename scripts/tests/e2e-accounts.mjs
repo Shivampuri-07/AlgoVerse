@@ -10,6 +10,7 @@ import { chromium } from "playwright-core";
 // Failure evidence (optional): with E2E_ARTIFACTS=<dir>, a failing test saves a screenshot, the
 // URL and the last console lines of every page still open, plus the failing step's error.
 const ARTIFACTS = process.env.E2E_ARTIFACTS || null;
+if (ARTIFACTS) mkdirSync(ARTIFACTS, { recursive: true });
 const openPages = new Set();
 function track(page) {
   const lines = [];
