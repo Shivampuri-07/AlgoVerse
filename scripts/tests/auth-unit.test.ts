@@ -637,3 +637,20 @@ test("build report: AI cap and key state are shown without printing the key", as
   assert.match(firebaseEnvReport({}), /global daily cap 500 \(default\) \| GEMINI_API_KEY NOT set \| GEMINI_KEY_SCOPE=preview: no/);
   assert.match(firebaseEnvReport({ AI_GLOBAL_DAILY_LIMIT: "abc", GEMINI_API_KEY: "your_key_here" }), /500 \(default; AI_GLOBAL_DAILY_LIMIT is not a positive integer\) \| GEMINI_API_KEY placeholder \(AI off\)/);
 });
+
+test("build report: which Firebase project the build uses — ids only, never key material", async () => {
+  const { firebaseEnvReport } = await import("../firebase-env-report.mjs");
+  const sa = account({ project_id: "algoverse-f5b48" });
+  const env = {
+    NEXT_PUBLIC_FIREBASE_PROJECT_ID: "algoverse-f5b48",
+    NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "algoverse-f5b48.firebaseapp.com",
+    NEXT_PUBLIC_FIREBASE_APP_ID: "1:132880800030:web:abc",
+    FIREBASE_SERVICE_ACCOUNT_KEY: Buffer.from(sa).toString("base64"),
+  };
+  const out = firebaseEnvReport(env);
+  assert.match(out, /Firebase project: web config algoverse-f5b48 \| auth domain matches: yes \| app project number 132880800030 \| service account algoverse-f5b48 \| client and server same project: yes/);
+  for (const secret of ["PRIVATE KEY", "svc@", env.FIREBASE_SERVICE_ACCOUNT_KEY.slice(0, 30)]) assert.ok(!out.includes(secret), `does not print ${secret}`);
+  const mixed = firebaseEnvReport({ ...env, FIREBASE_SERVICE_ACCOUNT_KEY: account({ project_id: "algoverse-preview" }) });
+  assert.match(mixed, /service account algoverse-preview \| client and server same project: no/, "a mismatch is visible in the build log");
+  assert.match(firebaseEnvReport({}), /web config - \| auth domain matches: no \| app project number - \| service account - \| client and server same project: no/);
+});

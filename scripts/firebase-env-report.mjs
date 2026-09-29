@@ -36,6 +36,21 @@ export function firebaseEnvReport(env = process.env) {
     const blankButSet = typeof env[name] === "string" && !has(name) ? " (set but EMPTY)" : "";
     lines.push(`  ${has(name) ? "yes" : "NO "}  ${name}${blankButSet}`);
   }
+  // Which Firebase project this build is wired to — project ids/numbers only (public metadata, the
+  // same ids every page's web config carries); the service account's key material is never printed.
+  const projectId = (env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? "").trim();
+  const authDomain = (env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ?? "").trim();
+  const appNumber = /^1:(\d+):web:/.exec((env.NEXT_PUBLIC_FIREBASE_APP_ID ?? "").trim())?.[1] ?? null;
+  let adminProject = null;
+  try {
+    const raw = (env.FIREBASE_SERVICE_ACCOUNT_KEY ?? "").trim();
+    if (raw) adminProject = JSON.parse(raw.startsWith("{") ? raw : Buffer.from(raw, "base64").toString("utf8")).project_id ?? null;
+  } catch {
+    adminProject = "(unreadable)";
+  }
+  lines.push(
+    `  Firebase project: web config ${projectId || "-"} | auth domain matches: ${projectId && authDomain === `${projectId}.firebaseapp.com` ? "yes" : "no"} | app project number ${appNumber ?? "-"} | service account ${adminProject ?? "-"} | client and server same project: ${projectId && adminProject === projectId ? "yes" : "no"}`
+  );
   // AI helper (non-secret config; the Gemini key itself is only reported as set/unset/placeholder).
   const cap = Number(env.AI_GLOBAL_DAILY_LIMIT);
   const capText = Number.isInteger(cap) && cap > 0 ? String(cap) : `500 (default${has("AI_GLOBAL_DAILY_LIMIT") ? "; AI_GLOBAL_DAILY_LIMIT is not a positive integer" : ""})`;
