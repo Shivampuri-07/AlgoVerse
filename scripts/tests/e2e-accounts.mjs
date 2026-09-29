@@ -228,7 +228,9 @@ test("sign-up validation messages, confirmation and password visibility toggle",
   await page.getByLabel("Confirm password").fill("different");
   await submit.click();
   await page.getByText("Enter a valid email address.").waitFor();
-  assert.ok(await page.getByText(/at least 8 characters/i).isVisible());
+  // The password field's own error (the hint with similar wording is replaced by it).
+  await page.locator("#password-error").waitFor();
+  assert.match(await page.locator("#password-error").innerText(), /at least 8 characters/i);
   assert.ok(await page.getByText("Passwords don't match.").isVisible());
   assert.equal(await page.getByLabel("Email").getAttribute("aria-invalid"), "true");
 
