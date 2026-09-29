@@ -1,10 +1,49 @@
 // Real-browser tests of the account UI (Google Chrome via playwright-core) against production
 // builds made by scripts/tests/run-e2e.mjs, with Firebase Auth/Firestore EMULATORS — no real
 // Firebase project is touched. Run: npm run test:e2e
-import { test, before, after } from "node:test";
+import { test as nodeTest, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { chromium } from "playwright-core";
+
+// Failure evidence (optional): with E2E_ARTIFACTS=<dir>, a failing test saves a screenshot, the
+// URL and the last console lines of every page still open, plus the failing step's error.
+const ARTIFACTS = process.env.E2E_ARTIFACTS || null;
+const openPages = new Set();
+function track(page) {
+  const lines = [];
+  page.on("console", (m) => lines.push(`[${m.type()}] ${m.text().slice(0, 300)}`));
+  page.on("pageerror", (e) => lines.push(`[pageerror] ${String(e).slice(0, 300)}`));
+  page.__lines = lines;
+  openPages.add(page);
+  page.on("close", () => openPages.delete(page));
+}
+async function captureFailure(name, err) {
+  if (!ARTIFACTS) return;
+  const dir = `${ARTIFACTS}/${name.replace(/[^a-z0-9]+/gi, "-").slice(0, 80)}`;
+  mkdirSync(dir, { recursive: true });
+  const notes = [`error: ${err?.stack ?? err}`, `at: ${new Date().toISOString()}`];
+  let i = 0;
+  for (const page of openPages) {
+    i++;
+    notes.push(`page ${i}: ${page.url()}`, ...(page.__lines ?? []).slice(-40).map((l) => `  ${l}`));
+    await page.screenshot({ path: `${dir}/page-${i}.png`, fullPage: false, timeout: 10_000 }).catch((e) => notes.push(`  (screenshot failed: ${e.message})`));
+  }
+  writeFileSync(`${dir}/failure.txt`, notes.join("\n"));
+}
+const test = (name, fn) =>
+  nodeTest(name, async (t) => {
+    const started = Date.now();
+    try {
+      await fn(t);
+    } catch (err) {
+      await captureFailure(name, err);
+      throw err;
+    } finally {
+      if (ARTIFACTS) writeFileSync(`${ARTIFACTS}/timings.txt`, `${Math.round((Date.now() - started) / 1000)}s\t${name}\n`, { flag: "a" });
+    }
+  });
 
 const AUTH = `http://${process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099"}`;
 const CONFIGURED = "http://localhost:3121";
@@ -86,6 +125,7 @@ const SEEDED_PROGRESS = JSON.stringify({
 
 async function newPage(base, viewport = { width: 1280, height: 900 }) {
   const context = await browser.newContext({ viewport, baseURL: base });
+  context.on("page", track); // popups too
   const page = await context.newPage();
   return { context, page };
 }
@@ -1079,9 +1119,17 @@ test("account isolation: A (Google, verified, Pro) → log out → B sees none o
     await page.getByRole("button", { name: "Mark Completed" }).click();
     await page.waitForTimeout(250);
   }
+  // A also has a private note and a bookmark.
+  await page.locator("#notes").fill("A's private note");
+  await page.getByRole("button", { name: /bookmark/i }).first().click();
+  await page.waitForTimeout(800);
   await page.goto("/account");
   await waitSynced(page);
-  assert.deepEqual(Object.keys((await storeOf(page)).completed).sort(), ["1", "2", "3", "9"]);
+  const aBefore = await storeOf(page);
+  assert.deepEqual(Object.keys(aBefore.completed).sort(), ["1", "2", "3", "9"]);
+  assert.equal(aBefore.notes["3"], "A's private note");
+  assert.ok(aBefore.bookmarked.includes(3));
+  assert.ok(aBefore.streak.activeDates.length > 0, "A has a streak history");
 
   // A logs out: A's progress is no longer shown (and not deleted).
   await page.getByRole("button", { name: /Account menu/ }).click();
@@ -1109,6 +1157,10 @@ test("account isolation: A (Google, verified, Pro) → log out → B sees none o
   assert.deepEqual([b.emailVerified, b.verifiedByGoogle], [false, false]);
   const bStore = await storeOf(page);
   assert.deepEqual([Object.keys(bStore.completed), bStore.bookmarked, Object.keys(bStore.notes)], [[], [], []], "B sees none of A's data");
+  assert.deepEqual([bStore.streak.current, bStore.streak.longest, bStore.streak.activeDates], [0, 0, []], "no streak from A");
+  assert.ok(!JSON.stringify(bStore).includes("A's private note"), "A's note text nowhere in B's data");
+  await page.goto("/problems/3");
+  assert.equal(await page.locator("#notes").inputValue(), "", "A's note not shown on the problem page");
   await page.goto("/");
   assert.match(await page.locator("main").innerText(), /0 \/ 455/, "dashboard shows B's own (empty) progress");
   // B's own work stays B's.
@@ -1127,7 +1179,10 @@ test("account isolation: A (Google, verified, Pro) → log out → B sees none o
   await page.waitForURL("**/account**");
   await page.getByText(/Email verified through Google/).waitFor();
   await waitSynced(page);
-  assert.deepEqual(Object.keys((await storeOf(page)).completed).sort(), ["1", "2", "3", "9"], "A's progress restored");
+  const aAfter = await storeOf(page);
+  assert.deepEqual(Object.keys(aAfter.completed).sort(), ["1", "2", "3", "9"], "A's progress restored");
+  assert.deepEqual([aAfter.notes, aAfter.bookmarked, aAfter.streak.longest], [aBefore.notes, aBefore.bookmarked, aBefore.streak.longest], "A's notes, bookmarks and streak restored");
+  assert.equal(aAfter.completed["20"], undefined, "B's completion isn't in A's data");
   const cloud = await cloudOf(page);
   assert.deepEqual(cloud.progress.filter((p) => !p.deleted).map((p) => p.id).sort((x, y) => x - y), [1, 2, 3, 9], "B's problem 20 never reached A's cloud");
   await context.close();

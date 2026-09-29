@@ -61,6 +61,22 @@ export function AiHelper({ problem, code }: { problem: AiProblemContext; code?: 
 
   React.useEffect(() => () => abortRef.current?.abort(), []);
 
+  // A different account (or signed out): drop the previous account's conversation and allowance.
+  // (Only when a known account changes — not when sign-in finishes loading on page open.)
+  const accountKey = authStatus === "signed-in" ? user?.uid ?? null : authStatus === "loading" ? undefined : null;
+  const lastAccount = React.useRef<string | null | undefined>(undefined);
+  React.useEffect(() => {
+    if (accountKey === undefined) return;
+    const previous = lastAccount.current;
+    lastAccount.current = accountKey;
+    if (previous === undefined || previous === accountKey) return;
+    abortRef.current?.abort();
+    setMessages([]);
+    setError(null);
+    setLoading(false);
+    setUsage(null);
+  }, [accountKey]);
+
   React.useEffect(() => {
     if (authStatus !== "signed-in") {
       setUsage(null);

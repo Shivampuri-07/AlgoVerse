@@ -233,3 +233,40 @@ test("another tab switched accounts: this tab reloads instead of keeping (and la
   ws.activateWorkspace(ws.userOwner(A));
   assert.deepEqual(completedIds(), ["1"], "A intact — the stale tab never overwrote it");
 });
+
+test("another tab switched accounts while this tab's sync for A was in flight: A's late answer is dropped", async () => {
+  await freshDevice({ store: progress([]), meta: { ownerUserId: A, cursor: 0, noteVersions: {} } });
+  ws.activateWorkspace(ws.userOwner(A));
+  engine.setSyncIdentity({ state: "signed-in", uid: A });
+  let release!: (r: Response) => void;
+  globalThis.fetch = (async () => new Promise<Response>((r) => (release = r))) as typeof fetch;
+  engine.startSync(A);
+  await new Promise((r) => setTimeout(r, 10));
+  // The OTHER tab parks A and makes B live — this tab's engine is not told (no stopSync here).
+  const aLive = local.getItem(STORAGE_KEY)!;
+  local.setItem(ws.PARKED_PREFIX + ws.userOwner(A), JSON.stringify({ owner: ws.userOwner(A), savedAt: "x", keys: { [STORAGE_KEY]: aLive } }));
+  local.setItem(STORAGE_KEY, JSON.stringify({ state: progress([77]), version: 2 }));
+  local.removeItem(engine.SYNC_META_KEY);
+  local.setItem(ws.ACTIVE_OWNER_KEY, ws.userOwner(B));
+  const cloud = { progress: [{ id: 1, completedAt: "2026-09-01T00:00:00.000Z", deleted: false, at: 1 }], bookmarks: [], notes: [], meta: null, cursor: 99, more: false, notesAfter: null };
+  release(new Response(JSON.stringify(cloud), { status: 200 }));
+  await new Promise((r) => setTimeout(r, 30));
+  assert.deepEqual(Object.keys(stored().completed), ["77"], "B's live data untouched");
+  assert.equal(engine.readMeta().ownerUserId, null, "no A meta written into B's slot");
+  // Edits this tab makes for A before catching up are not queued into B's outbox.
+  s().setCompleted(5, true);
+  assert.equal(local.getItem(engine.SYNC_OUTBOX_KEY), null);
+  engine.stopSync();
+});
+
+test("switching accounts clears the previous account's sync status, conflicts and unsynced-notes list", async () => {
+  await freshDevice({ store: progress([1]), meta: { ownerUserId: A, cursor: 0, noteVersions: {}, unsyncedNotes: { "n:1:note": { reason: "too_long" } } } });
+  ws.activateWorkspace(ws.userOwner(A));
+  engine.useSyncStore.setState({ conflicts: 3, pending: 4, message: "x", status: "synced" });
+  engine.resetSyncUi();
+  assert.equal(engine.useSyncStore.getState().unsynced.length, 1, "A's own list while A is active");
+  engine.useSyncStore.setState({ conflicts: 3, pending: 4 });
+  ws.activateWorkspace(ws.userOwner(B));
+  const ui = engine.useSyncStore.getState();
+  assert.deepEqual([ui.conflicts, ui.pending, ui.unsynced.length, ui.status, ui.message], [0, 0, 0, "off", null]);
+});

@@ -28,6 +28,22 @@ import {
 } from "@/lib/sync/types";
 
 export const SYNC_META_KEY = "algoverse-sync-meta";
+/** Owner of the device's live data (lib/workspace.ts): "guest" or "user:<uid>". */
+export const ACTIVE_OWNER_KEY = "algoverse-workspace-active";
+
+/**
+ * False when the device's live data belongs to someone other than `uid` — e.g. another tab
+ * switched accounts a moment ago and this tab hasn't caught up yet. Nothing is written for `uid`
+ * into another owner's data. (No owner recorded yet = a device from before workspaces: allowed.)
+ */
+function ownsLiveData(uid: string): boolean {
+  try {
+    const active = window.localStorage.getItem(ACTIVE_OWNER_KEY);
+    return active === null || active === `user:${uid}`;
+  } catch {
+    return true;
+  }
+}
 export const SYNC_OUTBOX_KEY = "algoverse-sync-outbox";
 export const LOCAL_BACKUP_PREFIX = "algoverse-local-backup:";
 const PUSH_DELAY_MS = 2_000;
@@ -220,6 +236,7 @@ function writeHeld(owner: string, ops: SyncOp[]) {
 }
 
 function recordFor(owner: string, ops: SyncOp[]) {
+  if (!ownsLiveData(owner)) return; // another owner's data is live now: never queue edits for `owner`
   if (identity.state === "signed-in" && identity.uid === owner) {
     enqueue(owner, ops);
     if (running?.uid === owner) schedulePush();
@@ -359,8 +376,8 @@ function applyChanges(uid: string, changes: SyncChanges, mode: "merge" | "replac
  */
 let generation = 0;
 class StaleSyncError extends Error {}
-function assertCurrent(gen: number) {
-  if (gen !== generation) throw new StaleSyncError("stale");
+function assertCurrent(gen: number, uid?: string) {
+  if (gen !== generation || (uid !== undefined && !ownsLiveData(uid))) throw new StaleSyncError("stale");
 }
 
 class SyncHttpError extends Error {
@@ -395,13 +412,13 @@ async function request<T>(method: "GET" | "POST", url: string, body?: unknown): 
 
 async function pushNow(uid: string, gen: number) {
   for (;;) {
-    assertCurrent(gen);
+    assertCurrent(gen, uid);
     const ops = readOutbox(uid);
     if (!ops.length) return;
     // Within Vercel's 4.5 MB request limit however long the notes are.
     const batch = takeBatch(ops, SYNC_LIMITS.maxOpsPerRequest, SYNC_LIMITS.maxRequestBytes);
     const result = await request<PushResponse>("POST", "/api/sync", { ops: batch });
-    assertCurrent(gen); // the account may have changed while the request was in flight
+    assertCurrent(gen, uid); // the account may have changed while the request was in flight (here or in another tab)
     // Remove exactly what was sent; anything edited again meanwhile stays queued.
     const sent = new Map(batch.map((o) => [opKey(o), JSON.stringify(o)]));
     const remaining = readOutbox(uid).filter((o) => sent.get(opKey(o)) !== JSON.stringify(o));
@@ -426,13 +443,13 @@ async function pushNow(uid: string, gen: number) {
  * Fetches every page of a pull (notes are paged to stay under the response size limit).
  * `onPage` runs per page; the cursor to keep is the FIRST page's.
  */
-async function pullPages(since: number, gen: number, onPage: (page: PullResponse) => void): Promise<number> {
+async function pullPages(since: number, gen: number, onPage: (page: PullResponse) => void, uid?: string): Promise<number> {
   let after: string | null = null;
   let cursor = since;
   for (let page = 0; page < 1000; page++) {
     const url: string = `/api/sync?since=${since}${after ? `&notesAfter=${encodeURIComponent(after)}` : ""}`;
     const res: PullResponse = await request<PullResponse>("GET", url);
-    assertCurrent(gen);
+    assertCurrent(gen, uid);
     if (page === 0) cursor = res.cursor;
     onPage(res);
     if (!res.more || !res.notesAfter) return cursor;
@@ -442,13 +459,18 @@ async function pullPages(since: number, gen: number, onPage: (page: PullResponse
 }
 
 async function pullNow(uid: string, gen: number) {
-  assertCurrent(gen);
+  assertCurrent(gen, uid);
   const meta = readMeta();
   let sawPreferences = false;
-  const cursor = await pullPages(meta.cursor, gen, (page) => {
-    if (page.meta?.preferences) sawPreferences = true;
-    applyChanges(uid, page);
-  });
+  const cursor = await pullPages(
+    meta.cursor,
+    gen,
+    (page) => {
+      if (page.meta?.preferences) sawPreferences = true;
+      applyChanges(uid, page);
+    },
+    uid
+  );
   // Only now (every page applied) does the cursor move on: an interrupted pull just resumes.
   writeMeta({ ...readMeta(), cursor });
   // First sync of an account with no saved preference: upload this device's theme once.
@@ -590,6 +612,12 @@ export function startSync(uid: string) {
   useSyncStore.setState({ pending: readOutbox(uid).length, message: null });
   publishUnsynced(readMeta());
   void syncNow();
+}
+
+/** The device's account changed: forget the previous account's sync status, conflicts and unsynced-notes list. */
+export function resetSyncUi() {
+  useSyncStore.setState({ status: "off", lastSyncedAt: null, pending: 0, message: null, conflicts: 0, unsynced: [] });
+  publishUnsynced(readMeta());
 }
 
 export function stopSync() {

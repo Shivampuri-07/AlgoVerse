@@ -20,7 +20,17 @@
  */
 import { useAppStore, STORAGE_KEY } from "@/lib/store";
 import { withWritesPaused } from "@/lib/storage-adapter";
-import { HELD_KEY, SYNC_META_KEY, SYNC_OUTBOX_KEY, ensureJournal, readMeta, stopJournal, stopSync } from "@/lib/sync/engine";
+import {
+  ACTIVE_OWNER_KEY,
+  HELD_KEY,
+  SYNC_META_KEY,
+  SYNC_OUTBOX_KEY,
+  ensureJournal,
+  readMeta,
+  resetSyncUi,
+  stopJournal,
+  stopSync,
+} from "@/lib/sync/engine";
 import { EMPTY_LEGACY, mergeLegacy } from "@/lib/sync/merge";
 import type { CompletedMap, LegacyProgress } from "@/lib/types";
 
@@ -28,7 +38,7 @@ export type WorkspaceOwner = "guest" | `user:${string}`;
 export const GUEST: WorkspaceOwner = "guest";
 export const userOwner = (uid: string): WorkspaceOwner => `user:${uid}`;
 
-export const ACTIVE_OWNER_KEY = "algoverse-workspace-active";
+export { ACTIVE_OWNER_KEY };
 export const PARKED_PREFIX = "algoverse-workspace:";
 const NEW_ACCOUNT_PREFIX = "algoverse-new-account:";
 const GUEST_DECLINED_PREFIX = "algoverse-guest-declined:";
@@ -162,7 +172,10 @@ export function activateWorkspace(target: WorkspaceOwner): ActivateResult {
 
   // This tab's memory may hold another owner's data (switched here, or by another tab).
   if (switched || tabOwner !== target) {
-    if (switched || tabOwner !== null) reloadStoreFromStorage();
+    if (switched || tabOwner !== null) {
+      reloadStoreFromStorage();
+      resetSyncUi();
+    }
     ensureJournal();
   }
   tabOwner = target;
@@ -176,6 +189,7 @@ export function followOtherTab(): WorkspaceOwner | null {
   stopSync();
   stopJournal();
   reloadStoreFromStorage();
+  resetSyncUi();
   ensureJournal();
   tabOwner = owner;
   return owner;
